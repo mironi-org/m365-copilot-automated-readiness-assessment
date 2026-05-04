@@ -1,0 +1,286 @@
+from azure.identity import ClientSecretCredential, InteractiveBrowserCredential
+from msgraph import GraphServiceClient
+import httpx
+import logging
+import os
+import subprocess
+
+# Suppress Azure SDK warnings
+logging.getLogger('azure.identity').setLevel(logging.ERROR)
+
+# Load .env file into environment variables (no external dependency)
+def _load_env():
+    """Load .env file if it exists (in project root, not Core folder)"""
+    env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+    if os.path.exists(env_path):
+        with open(env_path, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    os.environ[key.strip()] = value.strip()
+
+# Load environment variables on import
+_load_env()
+
+# Module-level cache for clients
+_graph_client = None
+_credential = None
+
+async def get_graph_client(tenant_id=None, silent=False):
+    """Get Microsoft Graph SDK client using service principal authentication
+    
+    Args:
+        tenant_id: Azure tenant ID (optional)
+        silent: If True, suppress authentication messages (for background license checks)
+    
+    Args:
+        tenant_id: Azure tenant ID (optional, read from .env if not provided)
+        
+    Returns:
+        GraphServiceClient instance
+    """
+    global _graph_client, _credential
+    
+    if _graph_client:
+        return _graph_client
+    
+    # Get credentials from environment
+    tenant_id = tenant_id or os.getenv('TENANT_ID')
+    client_id = os.getenv('CLIENT_ID')
+    auth_mode = os.getenv('AUTH_MODE', 'service_principal')
+    
+    from .spinner import get_timestamp
+    
+    if auth_mode == 'interactive':
+        # Interactive browser authentication (no secret needed)
+        if not all([tenant_id, client_id]):
+            raise ValueError(
+                "Missing required environment variables for interactive mode. Ensure .env file contains:\n"
+                "  TENANT_ID=<your-tenant-id>\n"
+                "  CLIENT_ID=<your-app-id>\n"
+                "  AUTH_MODE=interactive\n"
+                "Run setup-interactive-auth.ps1 to create the app registration."
+            )
+        
+        if not silent:
+            print(f"[{get_timestamp()}] ℹ️     Authenticating with interactive browser login...")
+            import sys
+            sys.stdout.flush()
+        
+        if _credential is None:
+            _credential = InteractiveBrowserCredential(
+                tenant_id=tenant_id,
+                client_id=client_id
+            )
+    else:
+        # Service principal authentication (default)
+        client_secret = os.getenv('CLIENT_SECRET')
+        
+        if not all([tenant_id, client_id, client_secret]):
+            raise ValueError(
+                "Missing required environment variables. Ensure .env file contains:\n"
+                "  TENANT_ID=<your-tenant-id>\n"
+                "  CLIENT_ID=<your-app-id>\n"
+                "  CLIENT_SECRET=<your-client-secret>\n"
+                "Run setup-service-principal.ps1 to create these credentials."
+            )
+        
+        if not silent:
+            print(f"[{get_timestamp()}] ℹ️     Authenticating with service principal...")
+            import sys
+            sys.stdout.flush()
+        
+        if _credential is None:
+            _credential = ClientSecretCredential(
+                tenant_id=tenant_id,
+                client_id=client_id,
+                client_secret=client_secret
+            )
+    
+    # Create Graph client
+    _graph_client = GraphServiceClient(
+        credentials=_credential,
+        scopes=['https://graph.microsoft.com/.default']
+    )
+    
+    if not silent:
+        print(f"[{get_timestamp()}] ✅ Authenticated successfully")
+        import sys
+        sys.stdout.flush()
+    return _graph_client
+
+def get_shared_credential():
+    """Get shared credential for non-Graph APIs (Defender, Power Platform)
+    
+    Returns:
+        ClientSecretCredential or InteractiveBrowserCredential instance
+    """
+    global _credential
+    
+    if _credential is not None:
+        return _credential
+    
+    # Get credentials from environment
+    tenant_id = os.getenv('TENANT_ID')
+    client_id = os.getenv('CLIENT_ID')
+    auth_mode = os.getenv('AUTH_MODE', 'service_principal')
+    
+    if auth_mode == 'interactive':
+        if not all([tenant_id, client_id]):
+            raise ValueError("Missing TENANT_ID or CLIENT_ID in .env file. Run setup-interactive-auth.ps1 first.")
+        
+        _credential = InteractiveBrowserCredential(
+            tenant_id=tenant_id,
+            client_id=client_id
+        )
+    else:
+        client_secret = os.getenv('CLIENT_SECRET')
+        
+        if not all([tenant_id, client_id, client_secret]):
+            raise ValueError("Missing credentials in .env file. Run setup-service-principal.ps1 first.")
+        
+        _credential = ClientSecretCredential(
+            tenant_id=tenant_id,
+            client_id=client_id,
+            client_secret=client_secret
+        )
+    
+    return _credential
+
+def get_power_platform_credential():
+    """Get credential for Power Platform APIs
+    
+    Returns the same shared credential (service principal).
+    
+    Returns:
+        ClientSecretCredential instance
+    """
+    return get_shared_credential()
+
+async def get_api_client(service_name):
+    """Get HTTP client with bearer token for specific API
+    
+    Args:
+        service_name: One of 'defender', 'power_platform'
+    
+    Returns:
+        httpx.AsyncClient with authorization header
+    """
+    credential = get_shared_credential()
+    
+    # Define scopes and base URLs for each service
+    service_config = {
+        'defender': {
+            'scope': 'https://api.security.microsoft.com/.default',
+            'base_url': 'https://api.security.microsoft.com'
+        },
+        'power_platform': {
+            'scope': 'https://service.powerapps.com/.default',
+            'base_url': 'https://service.powerapps.com'
+        }
+    }
+    
+    if service_name not in service_config:
+        raise ValueError(f"Unknown service: {service_name}. Valid: {list(service_config.keys())}")
+    
+    config = service_config[service_name]
+    
+    # Get token for the specific scope (synchronous call)
+    token = credential.get_token(config['scope'])
+    
+    # Create HTTP client with bearer token
+    return httpx.AsyncClient(
+        base_url=config['base_url'],
+        headers={
+            "Authorization": f"Bearer {token.token}",
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+        },
+        timeout=30.0
+    )
+
+
+def ensure_a365_interactive_signin(tenant_id=None, silent=False):
+    """Trigger interactive delegated sign-in for A365 users.
+
+    This performs interactive AuthN via Connect-MgGraph (browser popup style)
+    and validates AuthZ by probing the Copilot admin catalog endpoint.
+
+    Args:
+        tenant_id: Azure tenant ID (optional)
+        silent: If True, suppress status output
+
+    Returns:
+        bool: True only if interactive sign-in succeeds and endpoint authorization is confirmed
+    """
+    from .spinner import get_timestamp
+
+    try:
+        if not silent:
+            print(f"[{get_timestamp()}] ℹ️  A365 requires interactive sign-in with an AI/Copilot admin user...")
+
+        # Always re-run interactive auth for A365 to avoid silent reuse of prior in-process status.
+        os.environ["A365_INTERACTIVE_AUTH"] = "0"
+
+        tenant = tenant_id or os.getenv('TENANT_ID')
+        if not tenant:
+            os.environ["A365_INTERACTIVE_AUTH"] = "0"
+            if not silent:
+                print(f"[{get_timestamp()}] ⚠️  TENANT_ID is required for A365 interactive sign-in")
+            return False
+
+        # Use PowerShell Graph interactive auth (popup experience, similar to Purview flow).
+        ps_command = (
+            "$ErrorActionPreference='Stop';"
+            "if (-not (Get-Module -ListAvailable -Name Microsoft.Graph.Authentication)) {"
+            "  Write-Host 'Microsoft.Graph PowerShell module is required for A365 interactive sign-in.' -ForegroundColor Yellow;"
+            "  Write-Host 'Install with: Install-Module Microsoft.Graph -Scope CurrentUser -Force -AllowClobber' -ForegroundColor Cyan;"
+            "  exit 61"
+            "};"
+            "Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null;"
+            "Write-Host 'A365 sign-in required now. Complete device authentication in the browser within 120 seconds.' -ForegroundColor Yellow;"
+            "Write-Host 'If the browser prompt is hidden, bring it to front and finish sign-in.' -ForegroundColor Yellow;"
+            f"Connect-MgGraph -TenantId '{tenant}' -NoWelcome -ContextScope Process -UseDeviceAuthentication -Scopes 'User.Read','Directory.Read.All','CopilotPackages.Read.All' -ErrorAction Stop;"
+            "try {"
+            "  Invoke-MgGraphRequest -Method GET -Uri 'https://graph.microsoft.com/beta/copilot/admin/catalog/packages?$top=1' -ErrorAction Stop | Out-Null;"
+            "  exit 0"
+            "}"
+            "catch {"
+            "  if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {"
+            "    $code=[int]$_.Exception.Response.StatusCode;"
+            "    if ($code -eq 401) { exit 41 }"
+            "    elseif ($code -eq 403) { exit 43 }"
+            "    else { exit 50 }"
+            "  }"
+            "  else { exit 51 }"
+            "}"
+        )
+
+        result = subprocess.run(
+            ["pwsh", "-NoProfile", "-Command", ps_command],
+            text=True
+        )
+
+        if result.returncode == 0:
+            os.environ["A365_INTERACTIVE_AUTH"] = "1"
+            if not silent:
+                print(f"[{get_timestamp()}] ✅ A365 interactive sign-in and authorization successful")
+            return True
+
+        os.environ["A365_INTERACTIVE_AUTH"] = "0"
+        if not silent:
+            if result.returncode == 43:
+                print(f"[{get_timestamp()}] ⚠️  Signed-in user is not authorized for Copilot admin catalog endpoint (requires AI Admin/Copilot Admin or Global Admin).")
+            elif result.returncode == 41:
+                print(f"[{get_timestamp()}] ⚠️  Interactive sign-in succeeded, but token is unauthorized for Copilot admin endpoint.")
+            elif result.returncode == 61:
+                print(f"[{get_timestamp()}] ⚠️  Microsoft.Graph PowerShell module not found. Install it and retry.")
+            else:
+                print(f"[{get_timestamp()}] ⚠️  A365 interactive sign-in/auth probe failed via Graph PowerShell.")
+        return False
+    except Exception as e:
+        os.environ["A365_INTERACTIVE_AUTH"] = "0"
+        if not silent:
+            print(f"[{get_timestamp()}] ⚠️  A365 interactive sign-in failed: {e}")
+        return False
