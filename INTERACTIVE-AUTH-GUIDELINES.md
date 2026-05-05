@@ -13,98 +13,86 @@ For the technical implementation plan (code changes, file modifications, backup 
 The tool accesses 5 independent API streams. Each stream requires **different permissions** and can be run by **different users**:
 
 ```mermaid
-flowchart LR
-    LOGIN["🔐 Browser Login\n+ MFA"]
+flowchart TD
+    %% Authentication Layer
+    LOGIN["🔐 Browser Login + MFA"]
 
-    subgraph S1 [" "]
-        direction TB
-        S1_TITLE[/"STREAM 1"\]
-        S1_API["Microsoft Graph APIs"]
-        S1_SCOPE["Licenses · Identity · Directory"]
-        S1_CMD["--services M365 Entra"]
-        S1_ROLE[/"👤 Global Reader"\]
-        S1_TITLE --- S1_API --- S1_SCOPE --- S1_CMD --- S1_ROLE
+    %% Auth Method Router
+    LOGIN --> AUTH_PYTHON["Python InteractiveBrowserCredential"]
+    LOGIN --> AUTH_PS["PowerShell Interactive"]
+    LOGIN --> AUTH_DC["Device Code Flow"]
+
+    %% Streams
+    subgraph STREAMS[" "]
+        direction LR
+
+        subgraph S1["STREAM 1 — Graph"]
+            S1_CMD["--services M365 Entra"]
+            S1_DATA["Licenses · Identity · Directory"]
+            S1_ROLE["Role: Global Reader"]
+        end
+
+        subgraph S2["STREAM 2 — Defender"]
+            S2_CMD["--services Defender"]
+            S2_DATA["Threats · Endpoints · Posture"]
+            S2_ROLE["Role: Security Reader"]
+        end
+
+        subgraph S3["STREAM 3 — Purview"]
+            S3_CMD["--services Purview"]
+            S3_DATA["Compliance · DLP Policies"]
+            S3_ROLE["Role: Compliance Reader"]
+        end
+
+        subgraph S4["STREAM 4 — Power Platform"]
+            S4_CMD["--services Power Platform"]
+            S4_DATA["Environments · DLP · AI Builder"]
+            S4_ROLE["Role: Power Platform Admin"]
+        end
+
+        subgraph S5["STREAM 5 — Copilot"]
+            S5_CMD["--services A365"]
+            S5_DATA["Agent Catalog · Details"]
+            S5_ROLE["Role: GitHub Copilot Access"]
+        end
     end
 
-    subgraph S2 [" "]
-        direction TB
-        S2_TITLE[/"STREAM 2"\]
-        S2_API["Defender APIs"]
-        S2_SCOPE["Threats · Endpoints · Posture"]
-        S2_CMD["--services Defender"]
-        S2_ROLE[/"👤 Security Reader"\]
-        S2_TITLE --- S2_API --- S2_SCOPE --- S2_CMD --- S2_ROLE
-    end
+    %% Connections
+    AUTH_PYTHON ==> S1_CMD
+    AUTH_PYTHON ==> S2_CMD
+    AUTH_PS -.-> S3_CMD
+    AUTH_PS -.-> S4_CMD
+    AUTH_DC -.-> S5_CMD
 
-    subgraph S3 [" "]
-        direction TB
-        S3_TITLE[/"STREAM 3"\]
-        S3_API["Exchange Online / Purview"]
-        S3_SCOPE["Compliance · DLP Policies"]
-        S3_CMD["--services Purview"]
-        S3_ROLE[/"👤 Compliance Reader"\]
-        S3_TITLE --- S3_API --- S3_SCOPE --- S3_CMD --- S3_ROLE
-    end
-
-    subgraph S4 [" "]
-        direction TB
-        S4_TITLE[/"STREAM 4"\]
-        S4_API["Power Platform APIs"]
-        S4_SCOPE["Environments · DLP · AI Builder"]
-        S4_CMD["--services Power Platform"]
-        S4_ROLE[/"👤 Power Platform Admin"\]
-        S4_TITLE --- S4_API --- S4_SCOPE --- S4_CMD --- S4_ROLE
-    end
-
-    subgraph S5 [" "]
-        direction TB
-        S5_TITLE[/"STREAM 5"\]
-        S5_API["Copilot Admin APIs"]
-        S5_SCOPE["Agent Catalog · Agent Details"]
-        S5_CMD["--services A365"]
-        S5_ROLE[/"👤 GitHub Copilot Access"\]
-        S5_TITLE --- S5_API --- S5_SCOPE --- S5_CMD --- S5_ROLE
-    end
-
-    REPORT["📊 Assessment\nReport"]
-
-    LOGIN ==>|"Python\nCredential"| S1_TITLE
-    LOGIN ==>|"Python\nCredential"| S2_TITLE
-    LOGIN -.->|"PowerShell\nAuth"| S3_TITLE
-    LOGIN -.->|"PowerShell\nAuth"| S4_TITLE
-    LOGIN -.->|"Device Code\nAuth"| S5_TITLE
-
-    S1_ROLE --> REPORT
+    %% Output
+    S1_ROLE --> REPORT["📊 Assessment Report"]
     S2_ROLE --> REPORT
     S3_ROLE --> REPORT
     S4_ROLE --> REPORT
     S5_ROLE --> REPORT
 
-    classDef authStyle fill:#4B0082,stroke:#6A0DAD,color:#FFFFFF,stroke-width:2px,font-size:16px
-    classDef graphTitle fill:#1F4E79,stroke:#2E75B6,color:#FFFFFF,stroke-width:2px,font-weight:bold
-    classDef graphNode fill:#2E75B6,stroke:#1F4E79,color:#FFFFFF,stroke-width:1px
-    classDef defenderTitle fill:#833C0B,stroke:#C55A11,color:#FFFFFF,stroke-width:2px,font-weight:bold
-    classDef defenderNode fill:#C55A11,stroke:#833C0B,color:#FFFFFF,stroke-width:1px
-    classDef purviewTitle fill:#375623,stroke:#548235,color:#FFFFFF,stroke-width:2px,font-weight:bold
-    classDef purviewNode fill:#548235,stroke:#375623,color:#FFFFFF,stroke-width:1px
-    classDef powerTitle fill:#7B2D8B,stroke:#A855F7,color:#FFFFFF,stroke-width:2px,font-weight:bold
-    classDef powerNode fill:#A855F7,stroke:#7B2D8B,color:#FFFFFF,stroke-width:1px
-    classDef copilotTitle fill:#1B4332,stroke:#2D6A4F,color:#FFFFFF,stroke-width:2px,font-weight:bold
-    classDef copilotNode fill:#2D6A4F,stroke:#1B4332,color:#FFFFFF,stroke-width:1px
-    classDef outputStyle fill:#2F5496,stroke:#4472C4,color:#FFFFFF,stroke-width:2px,font-size:14px
+    %% Styling
+    classDef loginStyle fill:#4B0082,stroke:#6A0DAD,color:#FFF,stroke-width:2px
+    classDef pythonAuth fill:#0D47A1,stroke:#1565C0,color:#FFF,stroke-width:2px
+    classDef psAuth fill:#4E342E,stroke:#6D4C41,color:#FFF,stroke-width:2px
+    classDef dcAuth fill:#1B5E20,stroke:#2E7D32,color:#FFF,stroke-width:2px
+    classDef stream1 fill:#1565C0,stroke:#0D47A1,color:#FFF
+    classDef stream2 fill:#E65100,stroke:#BF360C,color:#FFF
+    classDef stream3 fill:#2E7D32,stroke:#1B5E20,color:#FFF
+    classDef stream4 fill:#6A1B9A,stroke:#4A148C,color:#FFF
+    classDef stream5 fill:#00695C,stroke:#004D40,color:#FFF
+    classDef reportStyle fill:#1A237E,stroke:#283593,color:#FFF,stroke-width:2px
 
-    class LOGIN authStyle
-    class S1_TITLE,S1_ROLE graphTitle
-    class S1_API,S1_SCOPE,S1_CMD graphNode
-    class S2_TITLE,S2_ROLE defenderTitle
-    class S2_API,S2_SCOPE,S2_CMD defenderNode
-    class S3_TITLE,S3_ROLE purviewTitle
-    class S3_API,S3_SCOPE,S3_CMD purviewNode
-    class S4_TITLE,S4_ROLE powerTitle
-    class S4_API,S4_SCOPE,S4_CMD powerNode
-    class S5_TITLE,S5_ROLE copilotTitle
-    class S5_API,S5_SCOPE,S5_CMD copilotNode
-    class REPORT outputStyle
+    class LOGIN loginStyle
+    class AUTH_PYTHON pythonAuth
+    class AUTH_PS psAuth
+    class AUTH_DC dcAuth
+    class S1_CMD,S1_DATA,S1_ROLE stream1
+    class S2_CMD,S2_DATA,S2_ROLE stream2
+    class S3_CMD,S3_DATA,S3_ROLE stream3
+    class S4_CMD,S4_DATA,S4_ROLE stream4
+    class S5_CMD,S5_DATA,S5_ROLE stream5
+    class REPORT reportStyle
 ```
 
 ### Stream-to-Permission Mapping
@@ -173,6 +161,141 @@ When `--auth-mode interactive` is used, the `InteractiveBrowserCredential` reque
 
 ---
 
+## Two-Process Workflow
+
+The interactive auth workflow is split into **two independent processes**. Process 1 can be done once by an admin; Process 2 is repeated by anyone running assessments.
+
+```mermaid
+flowchart LR
+    %% Process 1: Setup
+    subgraph P1["⚙️ PROCESS 1: App Registration"]
+        direction TB
+        P1_Q{"Setup Method?"}
+        P1_A["A: Script\n.\setup-interactive-auth.ps1"]
+        P1_B["B: Manual Portal\n+ edit .env"]
+        P1_C["C: Script + Run\n-RunAssessment flag"]
+        P1_ENV[".env file ready"]
+
+        P1_Q -->|"Automated"| P1_A --> P1_ENV
+        P1_Q -->|"Manual"| P1_B --> P1_ENV
+        P1_Q -->|"End-to-End"| P1_C
+    end
+
+    %% Process 2: Run
+    subgraph P2["▶️ PROCESS 2: Run Assessment"]
+        direction TB
+        P2_CMD["python main.py\n--auth-mode interactive\n--services ..."]
+        P2_AUTH["Browser Login + MFA"]
+        P2_OUT["📊 Report"]
+
+        P2_CMD --> P2_AUTH --> P2_OUT
+    end
+
+    %% Connections between processes
+    P1_ENV ==>|"Copy .env.streamX → .env"| P2_CMD
+    P1_C ==>|"Auto-launches"| P2_CMD
+
+    %% Styling
+    classDef setupStyle fill:#1A237E,stroke:#3949AB,color:#FFF,stroke-width:2px
+    classDef runStyle fill:#1B5E20,stroke:#43A047,color:#FFF,stroke-width:2px
+    classDef choiceStyle fill:#B71C1C,stroke:#E53935,color:#FFF,stroke-width:2px
+    classDef envStyle fill:#E65100,stroke:#FF6D00,color:#FFF,stroke-width:2px
+    classDef cmdStyle fill:#004D40,stroke:#00897B,color:#FFF,stroke-width:2px
+    classDef reportStyle fill:#4A148C,stroke:#7B1FA2,color:#FFF,stroke-width:2px
+
+    class P1_Q choiceStyle
+    class P1_A,P1_B setupStyle
+    class P1_C cmdStyle
+    class P1_ENV envStyle
+    class P2_CMD,P2_AUTH runStyle
+    class P2_OUT reportStyle
+```
+
+### Process 1: App Registration Setup (One-Time)
+
+Choose **one** of these approaches:
+
+| Approach | When to Use | Result |
+|----------|-------------|--------|
+| **A. Setup script** | You have PowerShell + Global Admin access | Script creates app + writes `.env.streamX` automatically |
+| **B. Manual portal + edit `.env`** | App already exists, or different team created it | You just need the CLIENT_ID from portal |
+| **C. Both together** | Want to create app AND run assessment in one shot | Script + auto-run |
+
+#### Approach A: Automated Script
+
+```powershell
+.\setup-interactive-auth.ps1 -Streams "1"   # Creates app + .env.stream1
+Copy-Item .env.stream1 .env                  # Activate for use
+```
+
+#### Approach B: Manual (Edit `.env` Directly)
+
+If the app registration was created manually or by another process:
+
+1. Get the **Application (client) ID** from Azure Portal → Entra ID → App registrations
+2. Get the **Tenant ID** from Azure Portal → Entra ID → Overview
+3. Create/edit `.env` in the project root:
+
+```ini
+TENANT_ID=your-tenant-id-here
+CLIENT_ID=your-client-id-here
+AUTH_MODE=interactive
+```
+
+That's it. No script needed. Ensure the app registration has:
+- Platform: "Mobile and desktop applications" with redirect URI `http://localhost`
+- "Allow public client flows" = Yes
+- Delegated permissions granted + admin consent (see permissions tables below)
+
+#### Approach C: Setup + Run Together (End-to-End Automation)
+
+Use `-RunAssessment` to execute both processes in one command:
+
+```powershell
+# Create Stream 1 app registration AND immediately run the assessment
+.\setup-interactive-auth.ps1 -Streams "1" -RunAssessment
+
+# Create combined app AND run all streams
+.\setup-interactive-auth.ps1 -RunAssessment
+
+# Create Stream 2 app AND run Defender assessment
+.\setup-interactive-auth.ps1 -Streams "2" -RunAssessment
+```
+
+The script will:
+1. Create the app registration + configure permissions + get admin consent
+2. Write the `.env` file
+3. Copy it to active `.env` (if stream-specific)
+4. Launch `python main.py --auth-mode interactive --services ...` automatically
+
+### Process 2: Run Assessment by Stream
+
+Once `.env` is configured (from either approach above), run the assessment:
+
+```powershell
+# Stream 1: M365 + Entra (Graph API)
+python main.py --auth-mode interactive --services M365 Entra
+
+# Stream 2: Defender
+python main.py --auth-mode interactive --services Defender
+
+# Stream 3: Purview (PowerShell auth — .env CLIENT_ID not used)
+python main.py --auth-mode interactive --services Purview
+
+# Stream 4: Power Platform (PowerShell auth — .env CLIENT_ID not used)
+python main.py --auth-mode interactive --services "Power Platform" "Copilot Studio"
+
+# Stream 5: Copilot/A365 (device code — .env CLIENT_ID not used)
+python main.py --auth-mode interactive --services A365
+
+# All streams at once
+python main.py --auth-mode interactive
+```
+
+> **Note**: Only Streams 1 and 2 use the Python `InteractiveBrowserCredential` (and thus need CLIENT_ID in `.env`). Streams 3-5 authenticate via PowerShell subprocesses with their own interactive login prompts.
+
+---
+
 ## Usage After Implementation
 
 ```powershell
@@ -191,11 +314,38 @@ python main.py --auth-mode interactive --services A365
 ```
 
 ### `.env` for interactive mode
+
+**Single app (all streams combined):**
 ```
 TENANT_ID=your-tenant-id
 CLIENT_ID=your-app-registration-id
 AUTH_MODE=interactive
 ```
+
+**Dedicated app per stream (strict isolation):**
+
+The setup script creates stream-specific `.env` files when run per-stream:
+```powershell
+.\setup-interactive-auth.ps1 -Streams "1"   # Creates .env.stream1
+.\setup-interactive-auth.ps1 -Streams "2"   # Creates .env.stream2
+```
+
+Each team copies their stream file to `.env` before running:
+```powershell
+# IT Admin uses Stream 1 app:
+Copy-Item .env.stream1 .env
+python main.py --auth-mode interactive --services M365 Entra
+
+# Security team uses Stream 2 app:
+Copy-Item .env.stream2 .env
+python main.py --auth-mode interactive --services Defender
+```
+
+| File | App Registration | Permissions |
+|------|-----------------|-------------|
+| `.env.stream1` | "M365 Copilot Readiness - Stream 1 (Graph)" | Stream 1 delegated only |
+| `.env.stream2` | "M365 Copilot Readiness - Stream 2 (Defender)" | Stream 2 delegated only |
+| `.env` (from `-Streams "All"`) | "M365 Copilot Readiness - Interactive Auth" | All streams combined |
 
 ---
 

@@ -27,6 +27,14 @@
 .EXAMPLE
     .\setup-interactive-auth.ps1 -Streams "2"
     # Configures only Stream 2 (Defender) - for Security team
+
+.EXAMPLE
+    .\setup-interactive-auth.ps1 -Streams "1" -RunAssessment
+    # Creates app registration for Stream 1 AND immediately runs the assessment
+
+.EXAMPLE
+    .\setup-interactive-auth.ps1 -RunAssessment
+    # Creates combined app registration AND runs all streams
     
 .NOTES
     Requirements:
@@ -37,11 +45,25 @@
 #Requires -Version 5.1
 
 param(
-    [string]$Streams = "All"
+    [string]$Streams = "All",
+    [switch]$RunAssessment
 )
 
 # Configuration
-$AppName = "M365 Copilot Readiness - Interactive Auth"
+$streamAppNames = @{
+    1 = "M365 Copilot Readiness - Stream 1 (Graph)"
+    2 = "M365 Copilot Readiness - Stream 2 (Defender)"
+    3 = "M365 Copilot Readiness - Stream 3 (Purview)"
+}
+
+# When All streams: single combined app. When specific stream(s): dedicated app per stream
+if ($Streams -eq "All") {
+    $AppName = "M365 Copilot Readiness - Interactive Auth"
+} elseif ($selectedStreams.Count -eq 1) {
+    $AppName = $streamAppNames[$selectedStreams[0]]
+} else {
+    $AppName = "M365 Copilot Readiness - Interactive Auth"
+}
 
 # Color output
 function Write-Success { param($Message) Write-Host "✓ $Message" -ForegroundColor Green }
@@ -440,10 +462,24 @@ Write-Success "Admin consent flow completed"
 
 Write-Info "Creating .env file for interactive auth..."
 
+# Determine .env filename based on stream selection
+if ($Streams -eq "All") {
+    $envFileName = ".env"
+    $streamLabel = "All streams (combined)"
+} elseif ($selectedStreams.Count -eq 1) {
+    $envFileName = ".env.stream$($selectedStreams[0])"
+    $streamLabel = "Stream $($selectedStreams[0]) dedicated"
+} else {
+    $envFileName = ".env"
+    $streamLabel = "Streams $($selectedStreams -join ',')"
+}
+
 $envContent = @"
 # M365 Copilot Readiness Assessment Tool - Interactive Auth Configuration
 # Created: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
 # Auth Mode: Interactive Browser (delegated permissions, no secret needed)
+# App Registration: $($app.DisplayName)
+# Scope: $streamLabel
 
 TENANT_ID=$($context.TenantId)
 CLIENT_ID=$($app.AppId)
@@ -452,11 +488,11 @@ AUTH_MODE=interactive
 # NO CLIENT_SECRET NEEDED for interactive mode
 # The browser login + MFA replaces the need for a stored secret
 
+# To use this config: copy/rename this file to .env
 # DO NOT COMMIT THIS FILE TO GIT
-# Add .env to your .gitignore file
 "@
 
-$envPath = Join-Path $PSScriptRoot ".env"
+$envPath = Join-Path $PSScriptRoot $envFileName
 
 # Check if .env already exists
 if (Test-Path $envPath) {
@@ -483,14 +519,14 @@ $gitignorePath = Join-Path $PSScriptRoot ".gitignore"
 if (Test-Path $gitignorePath) {
     $gitignoreContent = Get-Content $gitignorePath -Raw
     if ($gitignoreContent -notmatch "\.env") {
-        Add-Content -Path $gitignorePath -Value "`n# Environment variables`n.env`n.env.interactive"
+        Add-Content -Path $gitignorePath -Value "`n# Environment variables`n.env`n.env.*`n"
         Write-Success "Added .env to .gitignore"
     }
 } else {
     @"
 # Environment variables
 .env
-.env.interactive
+.env.*
 
 # Python
 __pycache__/
@@ -567,3 +603,44 @@ Write-Host "✓ Setup complete! You can now run the tool with --auth-mode intera
 
 # Disconnect
 Disconnect-MgGraph | Out-Null
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Step 10 (Optional): Auto-run assessment if -RunAssessment specified
+# ═══════════════════════════════════════════════════════════════════════════════
+
+if ($RunAssessment) {
+    Write-Host "`n=============================================================================" -ForegroundColor Magenta
+    Write-Host "   PROCESS 2: Running Assessment Automatically" -ForegroundColor Magenta
+    Write-Host "=============================================================================" -ForegroundColor Magenta
+
+    # Ensure .env is the active file (copy stream-specific if needed)
+    $mainEnvPath = Join-Path $PSScriptRoot ".env"
+    if ($envPath -ne $mainEnvPath) {
+        Copy-Item -Path $envPath -Destination $mainEnvPath -Force
+        Write-Info "Copied $envPath → .env (active config)"
+    }
+
+    # Build the --services argument based on selected streams
+    $servicesArgs = @()
+    if ($Streams -eq "All") {
+        # No --services flag = run all
+        $servicesArgs = @()
+    } else {
+        if ($selectedStreams -contains 1) { $servicesArgs += @("M365", "Entra") }
+        if ($selectedStreams -contains 2) { $servicesArgs += @("Defender") }
+        if ($selectedStreams -contains 3) { $servicesArgs += @("Purview") }
+    }
+
+    # Build command
+    $pythonCmd = "py"
+    $mainScript = Join-Path $PSScriptRoot "main.py"
+    $baseArgs = @($mainScript, "--auth-mode", "interactive")
+    if ($servicesArgs.Count -gt 0) {
+        $baseArgs += @("--services") + $servicesArgs
+    }
+
+    Write-Host "`n  Running: $pythonCmd $($baseArgs -join ' ')" -ForegroundColor Cyan
+    Write-Host "" 
+
+    & $pythonCmd @baseArgs
+}
