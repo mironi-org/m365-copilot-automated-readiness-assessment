@@ -16,34 +16,26 @@ Follow these steps **in order**. The assessment cannot run without completing se
 flowchart LR
     %% Steps
     S1["🔧 STEP 1\nLocal Prerequisites"]
-    S2["📋 STEP 2\nApp Registration"]
-    S3["🔑 STEP 3\nPermissions +\nAdmin Consent"]
-    S4["📝 STEP 4\nConfigure .env"]
-    S5["▶️ STEP 5\nRun Assessment"]
+    S2["� STEP 2\nConfigure .env"]
+    S3["▶️ STEP 3\nRun Assessment"]
 
-    S1 --> S2 --> S3 --> S4 --> S5
+    S1 --> S2 --> S3
 
     %% Styling
     classDef prereqStyle fill:#37474F,stroke:#546E7A,color:#FFF,stroke-width:2px
-    classDef setupStyle fill:#1A237E,stroke:#3949AB,color:#FFF,stroke-width:2px
-    classDef permStyle fill:#4A148C,stroke:#7B1FA2,color:#FFF,stroke-width:2px
     classDef envStyle fill:#E65100,stroke:#FF6D00,color:#FFF,stroke-width:2px
     classDef runStyle fill:#1B5E20,stroke:#43A047,color:#FFF,stroke-width:2px
 
     class S1 prereqStyle
-    class S2 setupStyle
-    class S3 permStyle
-    class S4 envStyle
-    class S5 runStyle
+    class S2 envStyle
+    class S3 runStyle
 ```
 
 | Step | What | Who | One-Time? |
 |------|------|-----|-----------|
 | **1** | Install Python, PowerShell, packages | Anyone | Yes |
-| **2** | Create App Registration in Entra ID | Global Admin / App Admin | Yes |
-| **3** | Add delegated permissions + grant admin consent | Global Admin | Yes |
-| **4** | Write `.env` file with TENANT_ID + CLIENT_ID | Anyone | Yes |
-| **5** | Run `python main.py --auth-mode interactive` | Assessment user | Repeatable |
+| **2** | Write `.env` file with `TENANT_ID` + `AUTH_MODE=interactive` | Anyone | Yes |
+| **3** | Run `python main.py --auth-mode interactive` | Assessment user | Repeatable |
 
 ---
 
@@ -107,19 +99,11 @@ A browser window will open for authentication. Complete MFA if required, and the
 
 ### Permissions Reference
 
-Add **only the permissions needed for the streams you will run**. Then grant admin consent.
-
-### How to Add Permissions (Portal)
-
-**Navigate to:**
-> Azure Portal → **Microsoft Entra ID** → **App registrations** → *[your app]* → **API permissions**
-
-**Steps:**
-1. Click **"+ Add a permission"**
-2. Select the API and check the required permissions (see tables below)
-3. Click **"Add permissions"**
-4. Click **"Grant admin consent for [your tenant]"** (requires Global Admin)
-5. Verify green checkmarks ✅ appear next to each permission
+> **Note:** When using the default well-known Graph PowerShell client ID (no app registration), permissions are consented at login time via the browser prompt. This section is informational — listing what scopes the tool requests per stream.
+>
+> If using a **custom app registration** (`CLIENT_ID` in `.env`), add these delegated permissions in the portal and grant admin consent:
+>
+> Azure Portal → **Microsoft Entra ID** → **App registrations** → *[your app]* → **API permissions** → "+ Add a permission" → Grant admin consent.
 
 ### Stream 1: Microsoft Graph (M365 + Entra) — User Role: Global Reader
 
@@ -195,18 +179,13 @@ Add **only the permissions needed for the streams you will run**. Then grant adm
 
 > No additional Graph delegated permissions required. Authentication is handled via `Connect-MgGraph` device code flow in PowerShell with scopes: `User.Read`, `Directory.Read.All`, `CopilotPackages.Read.All`.
 
-### Admin Consent
+### Admin Consent (Custom App Only)
 
-A **Global Admin** must grant consent:
-
-| Approach | When to Use |
-|----------|-------------|
-| Grant all permissions at once | Single user runs all streams |
-| Grant per-stream permissions only | Different users run different streams — consent only what each needs |
+Only relevant if using a custom app registration (`CLIENT_ID` in `.env`).
 
 Azure Portal → App Registration → API Permissions → **"Grant admin consent for [tenant]"**
 
-> **Important:** Even if all permissions are consented on the app, the signed-in user can only access data their **Entra ID role** allows. Permissions + Role = Access.
+> **Important:** Even with the well-known client ID, the signed-in user can only access data their **Entra ID role** allows. Role = Access.
 
 ---
 
