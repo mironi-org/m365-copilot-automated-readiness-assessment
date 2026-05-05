@@ -1,8 +1,15 @@
 <#
 .SYNOPSIS
+    STEP 2: Create Per-Stream App Registrations (Admin — One-Time)
     Creates per-stream Azure AD App Registrations for Interactive Browser Authentication.
 
 .DESCRIPTION
+    Part of the Interactive Auth setup workflow (see interactive-auth-guidelines.md):
+      STEP 1: Prerequisites (modules, roles)
+      STEP 2: Create Per-Stream App Registrations (Admin — One-Time)  ← THIS SCRIPT
+      STEP 3: Configure .env
+      STEP 4: Run the tool
+
     Creates ONE app registration PER STREAM with isolated delegated permissions.
     Each app gets ONLY the permissions its stream needs — enforcing least-privilege
     at the token level.
@@ -13,7 +20,7 @@
     - Stream 3: "Readiness - Purview"           (2 Graph delegated permissions)
     - Stream 4: "Readiness - Power Platform"    (1 Power Platform API permission)
 
-    Stream 5 (A365/Copilot) uses GitHub CLI — no app registration needed.
+    Stream 5 (A365/Copilot) uses Connect-MgGraph directly — no app registration needed.
 
     After creation, admin consent is granted for each app and CLIENT_ID_STREAMx
     values are written to .env.
@@ -457,7 +464,7 @@ foreach ($streamNum in (1..4)) {
 }
 
 $envLines += ""
-$envLines += "# Stream 5 (A365/Copilot) uses GitHub CLI — no CLIENT_ID needed"
+$envLines += "# Stream 5 (A365/Copilot) uses Connect-MgGraph directly — no CLIENT_ID needed"
 $envLines += "# CLIENT_ID_STREAM5="
 $envLines += ""
 $envLines += "# NO CLIENT_SECRET NEEDED — all apps are public clients (delegated auth)"
