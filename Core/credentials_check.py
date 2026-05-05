@@ -55,11 +55,12 @@ def check_credentials():
     missing = []
     if not os.environ.get('TENANT_ID'):
         missing.append('TENANT_ID')
-    if not os.environ.get('CLIENT_ID'):
-        missing.append('CLIENT_ID')
-    # CLIENT_SECRET is only required for service_principal mode
-    if auth_mode != 'interactive' and not os.environ.get('CLIENT_SECRET'):
-        missing.append('CLIENT_SECRET')
+    # CLIENT_ID and CLIENT_SECRET are only required for service_principal mode
+    if auth_mode != 'interactive':
+        if not os.environ.get('CLIENT_ID'):
+            missing.append('CLIENT_ID')
+        if not os.environ.get('CLIENT_SECRET'):
+            missing.append('CLIENT_SECRET')
     
     return missing
 
@@ -76,7 +77,7 @@ def validate_credentials_or_exit(get_timestamp_func):
         print()
         print("To use this tool, you need to configure Azure credentials:")
         print("  Option 1 (Service Principal): Run .\\setup-service-principal.ps1")
-        print("  Option 2 (Interactive Browser): Run .\\setup-interactive-auth.ps1")
+        print("  Option 2 (Interactive Browser): Set TENANT_ID + AUTH_MODE=interactive in .env")
         print("           then use: python main.py --auth-mode interactive")
         print()
         print("See RUN.md for detailed setup instructions.")

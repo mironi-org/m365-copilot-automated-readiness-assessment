@@ -87,7 +87,7 @@ if auth_mode == 'interactive':
 
 ### 3. `setup-interactive-auth.ps1`
 
-**Removed** as a required step. Kept as optional for orgs that prefer a dedicated app registration.
+**Deleted** — no longer needed. Interactive mode uses the well-known Graph PowerShell client ID by default.
 
 ---
 
@@ -124,4 +124,4 @@ No app registration. No admin consent. No CLIENT_ID or CLIENT_SECRET.
 2. Modify `Core/get_graph_client.py` — default to well-known client ID when `CLIENT_ID` not set
 3. Update `Core/get_graph_client.py` `get_shared_credential()` with same logic
 4. Test: `python main.py --auth-mode interactive --services M365 Entra` with only `TENANT_ID` in `.env`
-5. Update `setup-interactive-auth.ps1` header to mark it as optional
+5. ~~Update `setup-interactive-auth.ps1` header to mark it as optional~~ → Deleted the script entirely

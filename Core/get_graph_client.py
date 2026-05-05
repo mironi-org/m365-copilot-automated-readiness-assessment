@@ -8,6 +8,10 @@ import subprocess
 # Suppress Azure SDK warnings
 logging.getLogger('azure.identity').setLevel(logging.ERROR)
 
+# Well-known Microsoft Graph PowerShell client ID — pre-registered in every Azure AD tenant.
+# Used as default for interactive auth so users don't need their own app registration.
+GRAPH_POWERSHELL_CLIENT_ID = "14d82eec-204b-4c2f-b7e8-296a70dab67e"
+
 # Load .env file into environment variables (no external dependency)
 def _load_env():
     """Load .env file if it exists (in project root, not Core folder)"""
@@ -54,13 +58,15 @@ async def get_graph_client(tenant_id=None, silent=False):
     
     if auth_mode == 'interactive':
         # Interactive browser authentication (no secret needed)
-        if not all([tenant_id, client_id]):
+        # Use well-known Graph PowerShell client ID if no custom CLIENT_ID is set
+        client_id = client_id or GRAPH_POWERSHELL_CLIENT_ID
+        
+        if not tenant_id:
             raise ValueError(
-                "Missing required environment variables for interactive mode. Ensure .env file contains:\n"
+                "Missing TENANT_ID for interactive mode. Ensure .env file contains:\n"
                 "  TENANT_ID=<your-tenant-id>\n"
-                "  CLIENT_ID=<your-app-id>\n"
                 "  AUTH_MODE=interactive\n"
-                "Run setup-interactive-auth.ps1 to create the app registration."
+                "No app registration needed — uses Microsoft Graph PowerShell public client."
             )
         
         if not silent:
@@ -127,8 +133,10 @@ def get_shared_credential():
     auth_mode = os.getenv('AUTH_MODE', 'service_principal')
     
     if auth_mode == 'interactive':
-        if not all([tenant_id, client_id]):
-            raise ValueError("Missing TENANT_ID or CLIENT_ID in .env file. Run setup-interactive-auth.ps1 first.")
+        client_id = client_id or GRAPH_POWERSHELL_CLIENT_ID
+        
+        if not tenant_id:
+            raise ValueError("Missing TENANT_ID in .env file for interactive mode.")
         
         _credential = InteractiveBrowserCredential(
             tenant_id=tenant_id,

@@ -2,7 +2,9 @@
 
 This document provides operational guidance for running the M365 Copilot Readiness Assessment tool using **interactive browser authentication** (`InteractiveBrowserCredential`) instead of a service principal.
 
-For the technical implementation plan (code changes, file modifications, backup strategy), see [`IMPLEMENTATION_PLAN_interactive_auth.md`](IMPLEMENTATION_PLAN_interactive_auth.md).
+For the technical implementation plan (code changes, file modifications, backup strategy), see [`INTERACTIVE-AUTH_ADJUSTMENT-PLAN.md`](INTERACTIVE-AUTH_ADJUSTMENT-PLAN.md).
+
+> **Key simplification:** Interactive mode uses the well-known **Microsoft Graph PowerShell** public client ID (`14d82eec-204b-4c2f-b7e8-296a70dab67e`) by default. **No app registration is required.** Users only need their `TENANT_ID` and appropriate Entra ID roles. Optionally, a custom app registration can still be used if `CLIENT_ID` is set in `.env`.
 
 ---
 
@@ -58,105 +60,52 @@ flowchart LR
 
 ---
 
-## STEP 2: App Registration Setup (One-Time)
+## STEP 2: Configure `.env`
 
-You need an Azure AD App Registration configured as a **public client**. Choose **one** approach:
+Create a `.env` file in the project root with **only your tenant ID**:
 
-| Approach | When to Use | Result |
-|----------|-------------|--------|
-| **A. Automated Script** | You have PowerShell + Global Admin access | Script creates app + writes `.env` automatically |
-| **B. Manual Portal** | App already exists, or another team creates it | You get CLIENT_ID from portal and edit `.env` |
-| **B2. Script on Existing App** | App was created manually; you want the script to add permissions + consent | Script configures existing app + writes `.env` |
-| **C. Script + Run** | Want to create app AND run assessment in one shot | Setup + auto-launch |
-
-### Approach A: Automated Script (Recommended)
-
-```powershell
-# All streams (default — Graph + Defender + Purview)
-.\setup-interactive-auth.ps1
-
-# Only specific streams (least-privilege per team)
-.\setup-interactive-auth.ps1 -Streams "1"      # IT Admin only (Graph)
-.\setup-interactive-auth.ps1 -Streams "2"      # Security team only (Defender)
-.\setup-interactive-auth.ps1 -Streams "1,2"    # IT Admin + Security
-.\setup-interactive-auth.ps1 -Streams "3"      # Compliance only (Purview)
+```ini
+TENANT_ID=your-tenant-id-here
+AUTH_MODE=interactive
 ```
 
-The script:
-- Creates a **public client** app registration (no secret needed)
-- Sets redirect URI `http://localhost` and enables public client flows
-- Adds **delegated** permissions (not application) for selected streams
-- Detects Defender/O365 Management API availability in the tenant
-- Opens browser for admin consent
-- Writes `.env` with `AUTH_MODE=interactive`
+That's it. No `CLIENT_ID` or `CLIENT_SECRET` needed — the tool uses the well-known Microsoft Graph PowerShell client ID (`14d82eec-204b-4c2f-b7e8-296a70dab67e`) automatically.
 
-> **Requires:** Global Administrator or Application Administrator role.
+> **Optional:** If your organization requires a custom app registration (for auditing or permission restriction), set `CLIENT_ID=your-app-id` in `.env` and it will be used instead of the well-known default.
 
-After the script completes, activate the `.env`:
-```powershell
-Copy-Item .env.stream1 .env    # If you used -Streams "1"
-```
-
-Then skip to **STEP 5**.
-
-### Approach B: Manual Setup (Portal)
-
-1. **Create App Registration** — Azure Portal → Entra ID → App registrations → "+ New registration"
-2. **Authentication settings:**
-   - Platform: **"Mobile and desktop applications"**
-   - Redirect URI: `http://localhost`
-   - Toggle **"Allow public client flows"** = **Yes**
-3. **No client secret needed** — this is a public client
-4. Note down:
-   - **Application (client) ID** → goes in `.env` as `CLIENT_ID`
-   - **Tenant ID** (from Entra ID → Overview) → goes in `.env` as `TENANT_ID`
-
-Then continue to **STEP 3** to add permissions.
-
-### Approach B2: Script on Existing App
-
-If the app registration was already created manually (Approach B) and you want the script to **add permissions and grant admin consent** without creating a new app:
-
-```powershell
-# Configure permissions on an existing app — provide its CLIENT_ID
-.\setup-interactive-auth.ps1 -ExistingAppId "your-client-id-here" -Streams "1"
-
-# All streams on existing app
-.\setup-interactive-auth.ps1 -ExistingAppId "your-client-id-here"
-```
-
-The script will:
-- **Skip** app registration creation (uses the provided app)
-- Add delegated permissions for selected streams
-- Open browser for admin consent
-- Write `.env` with the existing CLIENT_ID
-
-> **Requires:** Global Administrator or Application Administrator role (for consent).
-
-After the script completes, activate the `.env`:
-```powershell
-Copy-Item .env.stream1 .env    # If you used -Streams "1"
-```
-
-Then skip to **STEP 5**.
-
-### Approach C: Script + Run Together
-
-```powershell
-# Create Stream 1 app registration AND immediately run the assessment
-.\setup-interactive-auth.ps1 -Streams "1" -RunAssessment
-
-# Create combined app AND run all streams
-.\setup-interactive-auth.ps1 -RunAssessment
-```
-
-This handles Steps 2–5 automatically.
+Then proceed to **STEP 3**.
 
 ---
 
-## STEP 3: Delegated Permissions + Admin Consent
+## STEP 3: Run the Assessment
 
-> **If you used Approach A (script), this is already done — skip to STEP 4.**
+```powershell
+# Stream 1: M365 + Entra (Graph API) — requires Global Reader
+python main.py --auth-mode interactive --services M365 Entra
+
+# Stream 2: Defender — requires Security Reader
+python main.py --auth-mode interactive --services Defender
+
+# Stream 3: Purview — requires Compliance Reader
+python main.py --auth-mode interactive --services Purview
+
+# Stream 4: Power Platform — requires Power Platform Admin
+python main.py --auth-mode interactive --services "Power Platform" "Copilot Studio"
+
+# Stream 5: Copilot/A365 — requires GitHub Copilot access
+python main.py --auth-mode interactive --services A365
+
+# All streams at once — requires all roles
+python main.py --auth-mode interactive
+```
+
+A browser window will open for authentication. Complete MFA if required, and the assessment will proceed automatically.
+
+> **Consent prompt on first run:** When using the well-known Graph PowerShell client ID, the user will see a consent prompt in the browser listing the scopes requested. An admin can pre-consent for the entire org via the Enterprise Applications blade for "Microsoft Graph PowerShell" if desired.
+
+---
+
+### Permissions Reference
 
 Add **only the permissions needed for the streams you will run**. Then grant admin consent.
 
@@ -261,9 +210,16 @@ Azure Portal → App Registration → API Permissions → **"Grant admin consent
 
 ---
 
-## STEP 4: Configure `.env`
+## .env Configuration Reference
 
-Create/edit `.env` in the project root:
+### Minimal `.env` (recommended — no app registration):
+
+```ini
+TENANT_ID=your-tenant-id
+AUTH_MODE=interactive
+```
+
+### With custom app registration (optional):
 
 ```ini
 TENANT_ID=your-tenant-id
@@ -272,7 +228,7 @@ AUTH_MODE=interactive
 # CLIENT_SECRET is NOT needed for interactive mode
 ```
 
-**Dedicated app per stream (optional strict isolation):**
+### Dedicated app per stream (optional strict isolation):
 
 | File | App Registration | Permissions |
 |------|-----------------|-------------|
@@ -286,33 +242,7 @@ Copy-Item .env.stream1 .env    # IT Admin
 Copy-Item .env.stream2 .env    # Security team
 ```
 
----
-
-## STEP 5: Run the Assessment
-
-```powershell
-# Stream 1: M365 + Entra (Graph API) — requires Global Reader
-python main.py --auth-mode interactive --services M365 Entra
-
-# Stream 2: Defender — requires Security Reader
-python main.py --auth-mode interactive --services Defender
-
-# Stream 3: Purview — requires Compliance Reader
-python main.py --auth-mode interactive --services Purview
-
-# Stream 4: Power Platform — requires Power Platform Admin
-python main.py --auth-mode interactive --services "Power Platform" "Copilot Studio"
-
-# Stream 5: Copilot/A365 — requires GitHub Copilot access
-python main.py --auth-mode interactive --services A365
-
-# All streams at once — requires all roles
-python main.py --auth-mode interactive
-```
-
-> **Note**: Only Streams 1 and 2 use the Python `InteractiveBrowserCredential` (and thus need CLIENT_ID in `.env`). Streams 3–5 authenticate via PowerShell subprocesses with their own interactive login prompts.
-
-A browser window will open for authentication. Complete MFA if required, and the assessment will proceed automatically.
+> **Note**: Only Streams 1 and 2 use the Python `InteractiveBrowserCredential`. Streams 3–5 authenticate via PowerShell subprocesses with their own interactive login prompts.
 
 ---
 
@@ -427,7 +357,7 @@ flowchart TD
 
 ### Token Scope Strategy
 
-When `--auth-mode interactive` is used, the `InteractiveBrowserCredential` requests the `.default` scope for each API resource. This returns all delegated permissions that were admin-consented on the app registration — no per-stream scope filtering is needed.
+When `--auth-mode interactive` is used, the `InteractiveBrowserCredential` (using either the well-known Graph PowerShell client ID or a custom `CLIENT_ID`) requests the `.default` scope for each API resource. With the well-known client ID, users consent to scopes at login time. With a custom app, admin-consented permissions are used automatically.
 
 | Services Selected | Scope Requested | Notes |
 |---|---|---|
@@ -481,11 +411,17 @@ Each user runs their stream independently. Results export to separate files that
 
 ## Quick Reference: Service Principal vs Interactive
 
+| Auth Mode | `.env` Required | App Registration | User Action |
+|-----------|----------------|------------------|-------------|
+| Service Principal (default) | `TENANT_ID` + `CLIENT_ID` + `CLIENT_SECRET` | **Required** | None (headless) |
+| Interactive (new) | `TENANT_ID` + `AUTH_MODE=interactive` | **Not required** | Browser login + MFA |
+| Interactive + custom app | `TENANT_ID` + `CLIENT_ID` + `AUTH_MODE=interactive` | Optional (for audit/policy) | Browser login + MFA |
+
 ```powershell
 # Service principal (unchanged, default — no --auth-mode flag)
 python main.py --services M365 Entra Defender
 
-# Interactive browser auth — all services
+# Interactive browser auth — all services (no app registration needed)
 python main.py --auth-mode interactive
 
 # Interactive — specific stream
