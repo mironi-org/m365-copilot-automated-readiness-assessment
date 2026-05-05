@@ -7,7 +7,7 @@ import sys
 
 
 def load_env_file(base_path=None):
-    """Load .env file if it exists.
+    """Load .env file if it exists. Falls back to .env.stream* files.
     
     Args:
         base_path: Base path to look for .env file. If None, uses parent of Core folder.
@@ -16,13 +16,28 @@ def load_env_file(base_path=None):
         base_path = os.path.dirname(os.path.dirname(__file__))
     
     env_path = os.path.join(base_path, '.env')
+    if not os.path.exists(env_path):
+        # Fallback: look for .env.stream* or .env.interactive files
+        import glob
+        candidates = glob.glob(os.path.join(base_path, '.env.*'))
+        # Prefer .env.interactive, then .env.stream*
+        for candidate in sorted(candidates):
+            basename = os.path.basename(candidate)
+            if basename.startswith('.env.') and not basename.endswith('.example'):
+                env_path = candidate
+                break
+    
     if os.path.exists(env_path):
         with open(env_path, 'r') as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith('#') and '=' in line:
                     key, value = line.split('=', 1)
-                    os.environ[key.strip()] = value.strip()
+                    key = key.strip()
+                    value = value.strip()
+                    # Only set if value is non-empty (don't overwrite with blanks)
+                    if value:
+                        os.environ[key] = value
 
 
 def check_credentials():

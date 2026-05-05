@@ -56,6 +56,14 @@ $streamAppNames = @{
     3 = "M365 Copilot Readiness - Stream 3 (Purview)"
 }
 
+# Parse streams parameter early (needed for AppName logic)
+$selectedStreams = @()
+if ($Streams -eq "All") {
+    $selectedStreams = @(1, 2, 3)
+} else {
+    $selectedStreams = $Streams -split "," | ForEach-Object { [int]$_.Trim() }
+}
+
 # When All streams: single combined app. When specific stream(s): dedicated app per stream
 if ($Streams -eq "All") {
     $AppName = "M365 Copilot Readiness - Interactive Auth"
@@ -76,13 +84,10 @@ Write-Host "   M365 Copilot Readiness Tool - Interactive Auth Setup (Delegated)"
 Write-Host "=============================================================================" -ForegroundColor Cyan
 Write-Host ""
 
-# Parse streams parameter
-$selectedStreams = @()
+# Display selected streams
 if ($Streams -eq "All") {
-    $selectedStreams = @(1, 2, 3)
     Write-Info "Configuring ALL streams (1: Graph, 2: Defender, 3: Purview)"
 } else {
-    $selectedStreams = $Streams -split "," | ForEach-Object { [int]$_.Trim() }
     $streamNames = @{ 1 = "Graph (M365/Entra)"; 2 = "Defender"; 3 = "Purview" }
     $selectedNames = ($selectedStreams | ForEach-Object { $streamNames[$_] }) -join ", "
     Write-Info "Configuring streams: $selectedNames"
@@ -151,7 +156,7 @@ try {
 
 # Step 3: Check for existing app registration
 Write-Info "Checking for existing app registration..."
-$existingApp = Get-MgApplication -Filter "displayName eq '$AppName'" -ErrorAction SilentlyContinue
+$existingApp = Get-MgApplication -Filter "displayName eq '$AppName'" -ErrorAction SilentlyContinue | Select-Object -First 1
 
 $skipCreation = $false
 if ($existingApp) {
@@ -176,11 +181,23 @@ if (-not $skipCreation) {
         RedirectUris = @("http://localhost")
     }
     
-    $app = New-MgApplication `
-        -DisplayName $AppName `
-        -SignInAudience "AzureADMyOrg" `
-        -PublicClient $publicClient `
-        -IsFallbackPublicClient $true
+    try {
+        $app = New-MgApplication `
+            -DisplayName $AppName `
+            -SignInAudience "AzureADMyOrg" `
+            -PublicClient $publicClient `
+            -IsFallbackPublicClient $true -ErrorAction Stop
+    } catch {
+        Write-Fail "Failed to create app registration: $_"
+        Write-Host "`nYou need Application Administrator or Global Administrator role." -ForegroundColor Yellow
+        exit 1
+    }
+    
+    if (-not $app -or -not $app.AppId) {
+        Write-Fail "App registration creation returned empty result."
+        Write-Host "Ensure you have Application Administrator or Global Administrator role." -ForegroundColor Yellow
+        exit 1
+    }
     
     Write-Success "App created: $($app.DisplayName)"
     Write-Success "Application (Client) ID: $($app.AppId)"
@@ -461,6 +478,13 @@ Write-Success "Admin consent flow completed"
 # ═══════════════════════════════════════════════════════════════════════════════
 
 Write-Info "Creating .env file for interactive auth..."
+
+# Validate app registration before writing
+if (-not $app -or -not $app.AppId) {
+    Write-Fail "Cannot create .env file — app registration has no Client ID."
+    Write-Fail "Please re-run the script or manually create the app registration in Azure Portal."
+    exit 1
+}
 
 # Determine .env filename based on stream selection
 if ($Streams -eq "All") {
