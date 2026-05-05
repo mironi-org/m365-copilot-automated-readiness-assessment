@@ -97,13 +97,13 @@ flowchart TD
 
 ### Stream-to-Permission Mapping
 
-| Stream | `--services` Value | Minimum Entra Role | Delegated Permissions Required |
-|--------|-------------------|-------------------|-------------------------------|
-| **1. Graph** | `M365 Entra` | Global Reader | `User.Read.All`, `Directory.Read.All`, `Organization.Read.All`, `Reports.Read.All`, `AuditLog.Read.All`, `Sites.Read.All`, `Files.Read.All`, `ExternalConnection.Read.All`, `Channel.ReadBasic.All`, `OnlineMeetings.Read.All`, `Bookings.Read.All`, `People.Read.All`, `Printer.Read.All`, `Policy.Read.All`, `RoleManagement.Read.Directory`, `UserAuthenticationMethod.Read.All`, `AccessReview.Read.All`, `Application.Read.All`, `DeviceManagementManagedDevices.Read.All`, `DeviceManagementConfiguration.Read.All`, `NetworkAccessPolicy.Read.All` |
-| **2. Defender** | `Defender` | Security Reader | `SecurityEvents.Read.All`, `SecurityIncident.Read.All`, `ThreatIndicators.Read.All`, `ThreatHunting.Read.All`, `ThreatAssessment.Read.All`, `IdentityRiskyUser.Read.All`, `IdentityRiskEvent.Read.All` + Defender API: `Machine.Read.All` |
-| **3. Purview** | `Purview` | Compliance Reader | `InformationProtectionPolicy.Read` + Exchange Online PowerShell access (handled via `Connect-IPPSSession`) |
-| **4. Power Platform** | `"Power Platform" "Copilot Studio"` | Power Platform Admin | Handled via PowerShell interactive login (separate from Graph) |
-| **5. Copilot/A365** | `A365` | N/A (GitHub) | `User.Read`, `Directory.Read.All`, `CopilotPackages.Read.All` via `Connect-MgGraph` |
+| Stream | `--services` Value | Minimum Entra Role | Scenario | Delegated Permissions Required |
+|--------|-------------------|-------------------|----------|-------------------------------|
+| **1. Graph** | `M365 Entra` | Global Reader | **C** — IT Admin | `User.Read.All`, `Directory.Read.All`, `Organization.Read.All`, `Reports.Read.All`, `AuditLog.Read.All`, `Sites.Read.All`, `Files.Read.All`, `ExternalConnection.Read.All`, `Channel.ReadBasic.All`, `OnlineMeetings.Read.All`, `Bookings.Read.All`, `People.Read.All`, `Printer.Read.All`, `Policy.Read.All`, `RoleManagement.Read.Directory`, `UserAuthenticationMethod.Read.All`, `AccessReview.Read.All`, `Application.Read.All`, `DeviceManagementManagedDevices.Read.All`, `DeviceManagementConfiguration.Read.All`, `NetworkAccessPolicy.Read.All` |
+| **2. Defender** | `Defender` | Security Reader | **B** — Security team | `SecurityEvents.Read.All`, `SecurityIncident.Read.All`, `ThreatIndicators.Read.All`, `ThreatHunting.Read.All`, `ThreatAssessment.Read.All`, `IdentityRiskyUser.Read.All`, `IdentityRiskEvent.Read.All` + Defender API: `Machine.Read.All` |
+| **3. Purview** | `Purview` | Compliance Reader | **D** — Compliance officer | `InformationProtectionPolicy.Read` + Exchange Online PowerShell access (handled via `Connect-IPPSSession`) |
+| **4. Power Platform** | `"Power Platform" "Copilot Studio"` | Power Platform Admin | **E** — Power Platform admin | Handled via PowerShell interactive login (separate from Graph) |
+| **5. Copilot/A365** | `A365` | N/A (GitHub) | **F** — Developer Lead | `User.Read`, `Directory.Read.All`, `CopilotPackages.Read.All` via `Connect-MgGraph` |
 
 ### Multi-User Execution Scenarios
 
