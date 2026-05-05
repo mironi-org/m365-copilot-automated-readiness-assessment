@@ -66,6 +66,7 @@ You need an Azure AD App Registration configured as a **public client**. Choose 
 |----------|-------------|--------|
 | **A. Automated Script** | You have PowerShell + Global Admin access | Script creates app + writes `.env` automatically |
 | **B. Manual Portal** | App already exists, or another team creates it | You get CLIENT_ID from portal and edit `.env` |
+| **B2. Script on Existing App** | App was created manually; you want the script to add permissions + consent | Script configures existing app + writes `.env` |
 | **C. Script + Run** | Want to create app AND run assessment in one shot | Setup + auto-launch |
 
 ### Approach A: Automated Script (Recommended)
@@ -111,6 +112,33 @@ Then skip to **STEP 5**.
    - **Tenant ID** (from Entra ID → Overview) → goes in `.env` as `TENANT_ID`
 
 Then continue to **STEP 3** to add permissions.
+
+### Approach B2: Script on Existing App
+
+If the app registration was already created manually (Approach B) and you want the script to **add permissions and grant admin consent** without creating a new app:
+
+```powershell
+# Configure permissions on an existing app — provide its CLIENT_ID
+.\setup-interactive-auth.ps1 -ExistingAppId "your-client-id-here" -Streams "1"
+
+# All streams on existing app
+.\setup-interactive-auth.ps1 -ExistingAppId "your-client-id-here"
+```
+
+The script will:
+- **Skip** app registration creation (uses the provided app)
+- Add delegated permissions for selected streams
+- Open browser for admin consent
+- Write `.env` with the existing CLIENT_ID
+
+> **Requires:** Global Administrator or Application Administrator role (for consent).
+
+After the script completes, activate the `.env`:
+```powershell
+Copy-Item .env.stream1 .env    # If you used -Streams "1"
+```
+
+Then skip to **STEP 5**.
 
 ### Approach C: Script + Run Together
 
