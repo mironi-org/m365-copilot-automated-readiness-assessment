@@ -1,4 +1,4 @@
-TENANT_ID = "92be237d-7eaa-4f11-be0e-0d87ca6abf1e"  # e.g., 'contoso.onmicrosoft.com' or GUID
+TENANT_ID = "0b5085b5-bea9-47a1-a6d2-d35a27943123"  # e.g., 'contoso.onmicrosoft.com' or GUID
 
 # Services to analyze - valid values: "M365", "Entra", "Defender", "Purview", "Power Platform", "Copilot Studio", "A365"
 # Empty array = analyze all services

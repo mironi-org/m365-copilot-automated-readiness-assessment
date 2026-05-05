@@ -34,7 +34,8 @@ flowchart LR
 | Step | What | Who | One-Time? |
 |------|------|-----|-----------|
 | **1** | Install Python, PowerShell, packages | Anyone | Yes |
-| **2** | Write `.env` file with `TENANT_ID` + `AUTH_MODE=interactive` | Anyone | Yes |
+| **2a** | Set `TENANT_ID` in `params.py` **(mandatory)** | Anyone | Yes |
+| **2b** | Write `.env` file with `TENANT_ID` + `AUTH_MODE=interactive` | Anyone | Yes |
 | **3** | Run `python main.py --auth-mode interactive` | Assessment user | Repeatable |
 
 ---
@@ -52,16 +53,28 @@ flowchart LR
 
 ---
 
-## STEP 2: Configure `.env`
+## STEP 2: Configure Tenant ID
 
-Create a `.env` file in the project root with **only your tenant ID**:
+### 2a. Update `params.py` (MANDATORY)
+
+Open `params.py` in the project root and set your tenant ID:
+
+```python
+TENANT_ID = "your-tenant-id-here"  # e.g., 'contoso.onmicrosoft.com' or GUID
+```
+
+> **⚠️ This is the primary source of truth for tenant ID.** The tool reads it directly from this file. If this value is wrong, authentication will fail with `AADSTS90072`.
+
+### 2b. Configure `.env`
+
+Create a `.env` file in the project root:
 
 ```ini
 TENANT_ID=your-tenant-id-here
 AUTH_MODE=interactive
 ```
 
-That's it. No `CLIENT_ID` or `CLIENT_SECRET` needed — the tool uses the well-known Microsoft Graph PowerShell client ID (`14d82eec-204b-4c2f-b7e8-296a70dab67e`) automatically.
+No `CLIENT_ID` or `CLIENT_SECRET` needed — the tool uses the well-known Microsoft Graph PowerShell client ID (`14d82eec-204b-4c2f-b7e8-296a70dab67e`) automatically.
 
 > **Optional:** If your organization requires a custom app registration (for auditing or permission restriction), set `CLIENT_ID=your-app-id` in `.env` and it will be used instead of the well-known default.
 
