@@ -284,14 +284,53 @@ def get_credential_for_stream(stream_name: str, tenant_id: str):
     return _credentials[client_id]
 ```
 
+### Implementation Gaps (Current State vs Plan)
+
+The setup script (`setup-interactive-auth.ps1`) is **DONE** — it creates per-stream apps and writes `CLIENT_ID_STREAMx` to `.env`.
+
+However, the **Python code does NOT yet support** the per-stream model. Here is the gap analysis:
+
+| What Setup Script Creates | What Python Code Currently Does | Gap |
+|---|---|---|
+| `CLIENT_ID_STREAM1` through `CLIENT_ID_STREAM4` in `.env` | Reads only `CLIENT_ID` (single env var) | ❌ No `CLIENT_ID_STREAMx` lookup |
+| 4 separate apps with isolated permissions | Uses ONE shared `_credential` globally | ❌ No per-stream credential cache |
+| Per-stream Defender token (Stream 2 app) | `get_defender_client.py` uses `AzureCliCredential` | ❌ Not using `InteractiveBrowserCredential` with Stream 2 client |
+| Per-stream Power Platform token (Stream 4 app) | `get_power_platform_client.py` uses `AzureCliCredential` | ❌ Not using `InteractiveBrowserCredential` with Stream 4 client |
+| Stream→Service mapping | No mapping exists in any `.py` file | ❌ No `STREAM_CLIENT_ID_MAP` |
+
+#### Detailed File-Level Gaps
+
+| File | Current Behavior | Required Behavior |
+|------|-----------------|-------------------|
+| `Core/get_graph_client.py` | `os.getenv('CLIENT_ID')` → falls back to Graph PowerShell client ID | Must lookup `CLIENT_ID_STREAMx` based on requested services via `STREAM_CLIENT_ID_MAP` |
+| `Core/get_graph_client.py` | Single global `_credential` / `_graph_client` | Must cache per `client_id` → multiple credentials + graph clients |
+| `Core/get_graph_client.py` | `get_shared_credential()` returns single credential | Must accept `stream_name` param to resolve correct credential |
+| `Core/credentials_check.py` | In interactive mode, only validates `TENANT_ID` exists | Must validate that `CLIENT_ID_STREAMx` is set for each requested service |
+| `Core/get_defender_client.py` | Uses `AzureCliCredential` for Defender API calls | Must use `InteractiveBrowserCredential` with `CLIENT_ID_STREAM2` in interactive mode |
+| `Core/get_power_platform_client.py` | Uses `AzureCliCredential` for Power Platform API | Must use `InteractiveBrowserCredential` with `CLIENT_ID_STREAM4` in interactive mode |
+| `Core/orchestrator.py` | Passes no stream context to client factories | Must pass `--services` info so client factories resolve correct stream credential |
+
+#### What Works Today (Workaround)
+
+Currently, interactive auth **does work** because `get_graph_client.py` falls back to the well-known Microsoft Graph PowerShell client ID (`14d82eec-204b-4c2f-b7e8-296a70dab67e`). This is a **pre-registered public client** available in every tenant — BUT:
+
+- It requests a **hardcoded subset of scopes** (not per-stream)
+- It's the **same credential** for all streams (no isolation)
+- Defender and Power Platform clients still use `AzureCliCredential` (won't work without `az login`)
+
+---
+
 ### Files to Modify
 
 | # | File | Change | Status |
 |---|------|--------|--------|
-| 1 | `Core/get_graph_client.py` | Stream→CLIENT_ID mapping, per-stream credential cache | TODO |
-| 2 | `Core/credentials_check.py` | Validate correct `CLIENT_ID_STREAMx` present for requested services | TODO |
-| 3 | `setup-interactive-auth.ps1` | Create ALL 4 app-regs + grant consent for each | TODO |
-| 4 | `.env` | Add all `CLIENT_ID_STREAMx` values | TODO |
+| 1 | `Core/get_graph_client.py` | Add `STREAM_CLIENT_ID_MAP`, per-stream credential cache, `get_credential_for_stream()` | **TODO** |
+| 2 | `Core/credentials_check.py` | Validate correct `CLIENT_ID_STREAMx` present for requested services | **TODO** |
+| 3 | `Core/get_defender_client.py` | Use `InteractiveBrowserCredential` with `CLIENT_ID_STREAM2` in interactive mode | **TODO** |
+| 4 | `Core/get_power_platform_client.py` | Use `InteractiveBrowserCredential` with `CLIENT_ID_STREAM4` in interactive mode | **TODO** |
+| 5 | `Core/orchestrator.py` | Pass stream/service context to client factories | **TODO** |
+| 6 | `setup-interactive-auth.ps1` | Create ALL 4 app-regs + grant consent for each | **DONE** ✅ |
+| 7 | `.env` | Add all `CLIENT_ID_STREAMx` values (via setup script) | **DONE** ✅ (after running script) |
 
 ---
 

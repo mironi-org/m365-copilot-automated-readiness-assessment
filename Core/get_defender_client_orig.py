@@ -465,7 +465,7 @@ async def get_defender_client(tenant_id, graph_client):
     try:
         # Get Graph/Security credential (Service Principal)
         from .get_graph_client import get_shared_credential
-        credential = get_shared_credential(service_name='Defender')
+        credential = get_shared_credential()
         
         # Time filtering for Defender API
         from datetime import datetime, timedelta

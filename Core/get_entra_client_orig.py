@@ -29,7 +29,7 @@ async def _get_graph_http_client():
     """Get HTTP client for Microsoft Graph API with bearer token"""
     from .get_graph_client import get_shared_credential
     
-    credential = get_shared_credential(service_name='Entra')
+    credential = get_shared_credential()
     token = credential.get_token('https://graph.microsoft.com/.default')
     
     return httpx.AsyncClient(
