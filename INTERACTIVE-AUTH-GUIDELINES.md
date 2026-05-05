@@ -146,6 +146,7 @@ Each user runs their stream independently. Results export to separate files that
 
 ### Design Decision: Token Scope Strategy
 
+
 When `--auth-mode interactive` is used, the `InteractiveBrowserCredential` requests the `.default` scope for each API resource. This returns all delegated permissions that were admin-consented on the app registration — no per-stream scope filtering is needed.
 
 | Services Selected | Scope Requested | Notes |
