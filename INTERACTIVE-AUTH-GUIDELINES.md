@@ -156,18 +156,18 @@ python main.py --auth-mode interactive --services "Power Platform" "Copilot Stud
 **Scenario F: Combined results from multiple users**
 Each user runs their stream independently. Results export to separate files that can be combined.
 
-### Design Decision: Per-Stream Token Scope
+### Design Decision: Token Scope Strategy
 
-When `--auth-mode interactive` is used, the `InteractiveBrowserCredential` will request only the scopes relevant to the selected `--services`:
+When `--auth-mode interactive` is used, the `InteractiveBrowserCredential` requests the `.default` scope for each API resource. This returns all delegated permissions that were admin-consented on the app registration — no per-stream scope filtering is needed.
 
-| Services Selected | Scopes Requested |
-|---|---|
-| `M365 Entra` | Graph directory + reports scopes only |
-| `Defender` | Graph security scopes + Defender API scope |
-| `Purview` | Minimal (PowerShell handles its own auth) |
-| `"Power Platform" "Copilot Studio"` | Minimal (PowerShell handles its own auth) |
-| `A365` | Minimal (PowerShell `Connect-MgGraph` handles its own auth) |
-| All (no `--services` flag) | All scopes combined |
+| Services Selected | Scope Requested | Notes |
+|---|---|---|
+| `M365 Entra` | `https://graph.microsoft.com/.default` | All consented Graph delegated permissions |
+| `Defender` | `https://graph.microsoft.com/.default` + `https://api.securitycenter.microsoft.com/.default` | Graph + Defender API |
+| `Purview` | Minimal (PowerShell handles its own auth) | No Python credential used |
+| `"Power Platform" "Copilot Studio"` | Minimal (PowerShell handles its own auth) | No Python credential used |
+| `A365` | Minimal (PowerShell `Connect-MgGraph` handles its own auth) | No Python credential used |
+| All (no `--services` flag) | All resource scopes as needed |  |
 
 > **Note**: Streams 3, 4, and 5 already use interactive user auth via PowerShell subprocesses — the `InteractiveBrowserCredential` change only affects Streams 1 and 2 (Graph + Defender).
 

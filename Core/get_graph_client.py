@@ -28,7 +28,7 @@ _graph_client = None
 _credential = None
 
 async def get_graph_client(tenant_id=None, silent=False):
-    """Get Microsoft Graph SDK client using service principal authentication
+    """Get Microsoft Graph SDK client using service principal or interactive browser authentication
     
     Args:
         tenant_id: Azure tenant ID (optional)
@@ -151,10 +151,10 @@ def get_shared_credential():
 def get_power_platform_credential():
     """Get credential for Power Platform APIs
     
-    Returns the same shared credential (service principal).
+    Returns the same shared credential (service principal or interactive browser).
     
     Returns:
-        ClientSecretCredential instance
+        ClientSecretCredential or InteractiveBrowserCredential instance
     """
     return get_shared_credential()
 
