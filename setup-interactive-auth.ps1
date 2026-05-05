@@ -216,7 +216,7 @@ function New-StreamAppRegistration {
             -DisplayName $AppName `
             -SignInAudience "AzureADMyOrg" `
             -PublicClient $publicClient `
-            -IsFallbackPublicClient $true `
+            -IsFallbackPublicClient `
             -RequiredResourceAccess $RequiredResourceAccess `
             -ErrorAction Stop
 
@@ -440,15 +440,41 @@ foreach ($streamNum in ($results.Keys | Sort-Object)) {
 # ═══════════════════════════════════════════════════════════════════════════════
 
 Write-Host ""
-Write-Info "Writing .env file..."
+Write-Info "Updating .env file..."
 
 $envPath = Join-Path $PSScriptRoot ".env"
+
+# Read existing .env values (preserve CLIENT_IDs from prior runs)
+$existingVars = @{}
+if (Test-Path $envPath) {
+    Get-Content $envPath | ForEach-Object {
+        if ($_ -match "^(CLIENT_ID_STREAM\d+|TENANT_ID|AUTH_MODE)=(.+)$") {
+            $existingVars[$Matches[1]] = $Matches[2]
+        }
+    }
+    # Backup before overwriting
+    $backup = "$envPath.bak.$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+    Copy-Item $envPath $backup
+    Write-Info "Backed up existing .env → $backup"
+}
+
+# Merge: new results override, existing values preserved
+foreach ($streamNum in ($results.Keys)) {
+    $envVar = $streamConfig[$streamNum].EnvVar
+    $existingVars[$envVar] = $results[$streamNum]
+}
+
+# Use tenant from current Graph context
+$existingVars["TENANT_ID"] = $context.TenantId
+$existingVars["AUTH_MODE"] = "interactive"
+
+# Build new .env content
 $envLines = @(
     "# M365 Copilot Readiness — Interactive Auth (Per-Stream)"
-    "# Created: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+    "# Updated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
     "# Security: Each stream has its own app with isolated permissions"
     ""
-    "TENANT_ID=$($context.TenantId)"
+    "TENANT_ID=$($existingVars['TENANT_ID'])"
     "AUTH_MODE=interactive"
     ""
     "# Per-stream app registration Client IDs"
@@ -456,32 +482,20 @@ $envLines = @(
 
 foreach ($streamNum in (1..4)) {
     $envVar = $streamConfig[$streamNum].EnvVar
-    if ($results.ContainsKey($streamNum)) {
-        $envLines += "$envVar=$($results[$streamNum])"
+    if ($existingVars.ContainsKey($envVar) -and $existingVars[$envVar]) {
+        $envLines += "$envVar=$($existingVars[$envVar])"
     } else {
-        $envLines += "# $envVar=  # Not configured (stream $streamNum skipped)"
+        $envLines += "# $envVar=  # Not configured yet"
     }
 }
 
 $envLines += ""
 $envLines += "# Stream 5 (A365/Copilot) uses Connect-MgGraph directly — no CLIENT_ID needed"
-$envLines += "# CLIENT_ID_STREAM5="
 $envLines += ""
 $envLines += "# NO CLIENT_SECRET NEEDED — all apps are public clients (delegated auth)"
 
-# Check existing .env
-if (Test-Path $envPath) {
-    $existingContent = Get-Content $envPath -Raw
-    if ($existingContent -match "CLIENT_SECRET") {
-        Write-Warn "Existing .env has CLIENT_SECRET (service principal mode)"
-        $backup = "$envPath.bak.$(Get-Date -Format 'yyyyMMdd-HHmmss')"
-        Copy-Item $envPath $backup
-        Write-Info "Backed up existing .env → $backup"
-    }
-}
-
 $envLines -join "`n" | Out-File -FilePath $envPath -Encoding UTF8 -Force
-Write-Success ".env written: $envPath"
+Write-Success ".env updated: $envPath"
 
 # ─── Ensure .gitignore covers .env ───
 $gitignorePath = Join-Path $PSScriptRoot ".gitignore"
