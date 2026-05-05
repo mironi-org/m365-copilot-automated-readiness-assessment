@@ -311,14 +311,57 @@ def get_credential_for_stream(stream_name: str, tenant_id: str):
 
 ## Setup Script: `setup-interactive-auth.ps1`
 
-Creates ALL per-stream app registrations in one run:
+Automates the entire Step 2 (one-time admin setup). Creates ALL per-stream app registrations, grants consent, writes `.env`.
+
+### Usage
 
 ```powershell
-# For each stream:
-#   1. Create app registration
-#   2. Add ONLY that stream's delegated permissions
-#   3. Grant admin consent
-#   4. Output CLIENT_ID_STREAMx to .env
+# Create all 4 per-stream apps (default)
+.\setup-interactive-auth.ps1
+
+# Create only specific streams
+.\setup-interactive-auth.ps1 -Streams "1,2"
+
+# Force-recreate (delete existing apps first)
+.\setup-interactive-auth.ps1 -Force
+```
+
+### What It Does
+
+1. Connects to Microsoft Graph (browser login — requires Global Admin or Application Admin)
+2. Creates one public-client app per stream with `http://localhost` redirect
+3. Assigns ONLY that stream's delegated permissions (Scope type)
+4. Opens browser for admin consent per app (user clicks Accept)
+5. Writes `CLIENT_ID_STREAM1` through `CLIENT_ID_STREAM4` to `.env`
+6. Backs up existing `.env` if it contained `CLIENT_SECRET` (service principal mode)
+
+### Apps Created
+
+| Stream | App Name | Permissions | Env Variable |
+|--------|----------|-------------|-------------|
+| 1 | `Readiness - M365 & Entra` | 22 Graph delegated | `CLIENT_ID_STREAM1` |
+| 2 | `Readiness - Defender` | 7 Graph + 1 Defender + 2 O365 Mgmt | `CLIENT_ID_STREAM2` |
+| 3 | `Readiness - Purview` | 2 Graph delegated | `CLIENT_ID_STREAM3` |
+| 4 | `Readiness - Power Platform` | 1 Power Platform API | `CLIENT_ID_STREAM4` |
+
+### Prerequisites
+
+- PowerShell 5.1+
+- `Microsoft.Graph` module (auto-installed if missing)
+- Global Administrator or Application Administrator role
+- Defender XDR must be activated for Stream 2 Defender API (Graph security perms still work without it)
+
+### Output
+
+After running, `.env` will contain:
+
+```ini
+TENANT_ID=<your-tenant-id>
+AUTH_MODE=interactive
+CLIENT_ID_STREAM1=<guid>
+CLIENT_ID_STREAM2=<guid>
+CLIENT_ID_STREAM3=<guid>
+CLIENT_ID_STREAM4=<guid>
 ```
 
 ---
