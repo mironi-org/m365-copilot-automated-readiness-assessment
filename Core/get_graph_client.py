@@ -105,9 +105,23 @@ async def get_graph_client(tenant_id=None, silent=False):
             )
     
     # Create Graph client
+    # For service principal: .default returns all app-level permissions granted to the SP.
+    # For interactive: explicit delegated scopes trigger consent prompt during login.
+    if auth_mode == 'interactive':
+        scopes = [
+            'https://graph.microsoft.com/Organization.Read.All',
+            'https://graph.microsoft.com/Directory.Read.All',
+            'https://graph.microsoft.com/User.Read.All',
+            'https://graph.microsoft.com/Group.Read.All',
+            'https://graph.microsoft.com/Application.Read.All',
+            'https://graph.microsoft.com/AccessReview.Read.All',
+        ]
+    else:
+        scopes = ['https://graph.microsoft.com/.default']
+
     _graph_client = GraphServiceClient(
         credentials=_credential,
-        scopes=['https://graph.microsoft.com/.default']
+        scopes=scopes
     )
     
     if not silent:
