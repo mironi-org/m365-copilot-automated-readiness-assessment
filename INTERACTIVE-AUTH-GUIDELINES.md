@@ -22,7 +22,7 @@ This guide covers **option 2: Interactive Browser Authentication**.
 ### Why Per-Stream?
 
 - **Least-privilege** — a Defender token cannot access M365 directory data
-- **Role separation** — Security Reader runs Defender, Compliance Reader runs Purview
+- **Role separation** — Security Reader runs Defender, Global Reader (or Compliance Administrator) runs Purview
 - **Audit clarity** — each app's sign-in logs show exactly what was accessed
 
 ---
@@ -48,6 +48,61 @@ flowchart LR
     class S3 env
     class S4 run
 ```
+
+---
+
+## Stream Reference
+
+```mermaid
+flowchart TD
+    LOGIN["Browser Login + MFA"]
+
+    LOGIN --> CRED1["CLIENT_ID_STREAM1"]
+    LOGIN --> CRED2["CLIENT_ID_STREAM2"]
+    LOGIN --> PS["PowerShell Interactive"]
+
+    CRED1 --> S1["Stream 1: M365 & Entra\nLicenses, Identity, Directory, Policies"]
+    CRED2 --> S2["Stream 2: Defender\nThreats, Endpoints, Incidents"]
+    PS --> S3["Stream 3: Purview\nCompliance, DLP, Labels"]
+    PS --> S4["Stream 4: Power Platform\nEnvironments, DLP, AI Builder"]
+    PS --> S5["Stream 5: A365\nAgent Catalog"]
+
+    S1 --> OUT["Assessment Report"]
+    S2 --> OUT
+    S3 --> OUT
+    S4 --> OUT
+    S5 --> OUT
+
+    classDef login fill:#4B0082,stroke:#6A0DAD,color:#FFF,stroke-width:2px
+    classDef cred fill:#0D47A1,stroke:#1565C0,color:#FFF,stroke-width:2px
+    classDef ps fill:#4E342E,stroke:#6D4C41,color:#FFF,stroke-width:2px
+    classDef s1 fill:#1565C0,stroke:#0D47A1,color:#FFF
+    classDef s2 fill:#E65100,stroke:#BF360C,color:#FFF
+    classDef s3 fill:#2E7D32,stroke:#1B5E20,color:#FFF
+    classDef s4 fill:#6A1B9A,stroke:#4A148C,color:#FFF
+    classDef s5 fill:#00695C,stroke:#004D40,color:#FFF
+    classDef out fill:#1A237E,stroke:#283593,color:#FFF,stroke-width:2px
+
+    class LOGIN login
+    class CRED1,CRED2 cred
+    class PS ps
+    class S1 s1
+    class S2 s2
+    class S3 s3
+    class S4 s4
+    class S5 s5
+    class OUT out
+```
+
+| `--services` | Stream | Env Variable | User Role | What It Collects |
+|---|---|---|---|---|
+| `M365` / `Entra` | 1 | `CLIENT_ID_STREAM1` | Global Reader | Licenses, Identity, Directory, Policies |
+| `Defender` | 2 | `CLIENT_ID_STREAM2` | Security Reader | Threats, Endpoints, Incidents |
+| `Purview` | 3 | `CLIENT_ID_STREAM3` | Global Reader  | Compliance, DLP, Labels |
+| `"Power Platform"` / `"Copilot Studio"` | 4 | `CLIENT_ID_STREAM4` | Power Platform Admin | Environments, DLP, AI Builder |
+| `A365` | 5 | *(none — uses `Connect-MgGraph`)* | Global Reader | Agent Catalog |
+
+
 
 ---
 
@@ -106,11 +161,16 @@ Run the setup script. Each command creates the app, assigns permissions, grants 
 
 > The admin's job ends here. The assessment user takes over at Step 3.
 
-### Option B: Manual (Azure Portal)
+---
+
+### Option B: Manual (Azure Portal) — Rare Use
+
+<details>
+<summary><strong>Click to expand manual app registration steps</strong></summary>
 
 Go to **Azure Portal → Entra ID → App registrations → + New registration**
 
-All apps use these common settings:
+**Common settings for ALL apps:**
 
 | Setting | Value |
 |---------|-------|
@@ -118,112 +178,47 @@ All apps use these common settings:
 | Redirect URI | Public client/native → `http://localhost` |
 | Allow public client flows | **Yes** |
 
----
-
-### Stream 1: `Readiness - M365 & Entra`
-
-**User role required:** `Global Reader`
-
-**Microsoft Graph → Delegated permissions:**
-
-| Permission |
-|-----------|
-| `Organization.Read.All` |
-| `Directory.Read.All` |
-| `User.Read.All` |
-| `Group.Read.All` |
-| `Application.Read.All` |
-| `AccessReview.Read.All` |
-| `Policy.Read.All` |
-| `RoleManagement.Read.Directory` |
-| `UserAuthenticationMethod.Read.All` |
-| `Reports.Read.All` |
-| `AuditLog.Read.All` |
-| `Sites.Read.All` |
-| `Files.Read.All` |
-| `ExternalConnection.Read.All` |
-| `Channel.ReadBasic.All` |
-| `OnlineMeetings.Read.All` |
-| `Bookings.Read.All` |
-| `People.Read.All` |
-| `Printer.Read.All` |
-| `DeviceManagementManagedDevices.Read.All` |
-| `DeviceManagementConfiguration.Read.All` |
-| `NetworkAccessPolicy.Read.All` |
-
-**→ Grant admin consent ✅** → Copy the Application (client) ID → save as `CLIENT_ID_STREAM1`
+After creating each app: add the listed permissions → **Grant admin consent ✅** → copy Application (client) ID → save to `.env`.
 
 ---
 
-### Stream 2: `Readiness - Defender`
+**Stream 1** — `Readiness - M365 & Entra` · Role: `Global Reader` · Save as `CLIENT_ID_STREAM1`
 
-**User role required:** `Security Reader`
+Microsoft Graph → Delegated: `Organization.Read.All`, `Directory.Read.All`, `User.Read.All`, `Group.Read.All`, `Application.Read.All`, `AccessReview.Read.All`, `Policy.Read.All`, `RoleManagement.Read.Directory`, `UserAuthenticationMethod.Read.All`, `Reports.Read.All`, `AuditLog.Read.All`, `Sites.Read.All`, `Files.Read.All`, `ExternalConnection.Read.All`, `Channel.ReadBasic.All`, `OnlineMeetings.Read`, `Bookings.Read.All`, `People.Read.All`, `Printer.Read.All`, `DeviceManagementManagedDevices.Read.All`, `DeviceManagementConfiguration.Read.All`, `NetworkAccessPolicy.Read.All`
 
-**Microsoft Graph → Delegated:**
-
-| Permission |
-|-----------|
-| `SecurityEvents.Read.All` |
-| `SecurityIncident.Read.All` |
-| `ThreatIndicators.Read.All` |
-| `ThreatHunting.Read.All` |
-| `ThreatAssessment.Read.All` |
-| `IdentityRiskyUser.Read.All` |
-| `IdentityRiskEvent.Read.All` |
-
-**WindowsDefenderATP API** (search in "APIs my organization uses") → Delegated:
-
-| Permission |
-|-----------|
-| `Machine.Read.All` |
-
-**Office 365 Management APIs** (search in "APIs my organization uses") → Delegated:
-
-| Permission |
-|-----------|
-| `ActivityFeed.Read` |
-| `ServiceHealth.Read` |
-
-**→ Grant admin consent ✅** → Copy the Application (client) ID → save as `CLIENT_ID_STREAM2`
+> ⚠️ Do NOT add `TeamsAppInstallation.ReadWriteAndConsentSelfForChat.All` — does not exist in Graph, causes AADSTS650051.
 
 ---
 
-### Stream 3: `Readiness - Purview`
+**Stream 2** — `Readiness - Defender` · Role: `Security Reader` · Save as `CLIENT_ID_STREAM2`
 
-**User role required:** `Compliance Reader`
-
-**Microsoft Graph → Delegated:**
-
-| Permission |
-|-----------|
-| `InformationProtectionPolicy.Read` |
-| `Policy.Read.All` |
-
-**→ Grant admin consent ✅** → Copy the Application (client) ID → save as `CLIENT_ID_STREAM3`
-
-> Purview data is mainly collected via PowerShell (`Connect-IPPSSession`). This app provides supplementary Graph access.
+- Microsoft Graph → Delegated: `SecurityEvents.Read.All`, `SecurityIncident.Read.All`, `ThreatIndicators.Read.All`, `ThreatHunting.Read.All`, `ThreatAssessment.ReadWrite.All`, `IdentityRiskyUser.Read.All`, `IdentityRiskEvent.Read.All`
+- WindowsDefenderATP API (under "APIs my organization uses") → Delegated: `Machine.Read`
+- Office 365 Management APIs (under "APIs my organization uses") → Delegated: `ActivityFeed.Read`, `ServiceHealth.Read`
 
 ---
 
-### Stream 4: `Readiness - Power Platform`
+**Stream 3** — `Readiness - Purview` · Role: `Global Reader` (minimum) · Save as `CLIENT_ID_STREAM3`
 
-**User role required:** `Power Platform Administrator`
+Microsoft Graph → Delegated: `InformationProtectionPolicy.Read`, `Policy.Read.All`
 
-**Power Platform API** (`https://api.bap.microsoft.com`) → Delegated:
+> Global Reader covers the Graph delegated permissions. For full Purview PowerShell access (`Connect-IPPSSession` — DLP policies, sensitivity labels), assign **Compliance Administrator** (the lowest Entra role that maps to View-Only Organization Management in Purview).
 
-| Permission |
-|-----------|
-| `user_impersonation` |
+---
 
-**→ Grant admin consent ✅** → Copy the Application (client) ID → save as `CLIENT_ID_STREAM4`
+**Stream 4** — `Readiness - Power Platform` · Role: `Power Platform Administrator` · Save as `CLIENT_ID_STREAM4`
+
+Power Platform API (`https://api.bap.microsoft.com`) → Delegated: `user_impersonation`
 
 > Power Platform data is mainly collected via PowerShell subprocess.
 
 ---
 
-### Stream 5: A365 / Copilot
+**Stream 5** — A365 / Copilot · Role: `Global Reader`
 
-**No app registration needed.** Uses `Connect-MgGraph` interactive browser login (falls back to device code flow).
+No app registration needed. Uses `Connect-MgGraph` interactive browser login.
+
+</details>
 
 ---
 
@@ -267,7 +262,7 @@ python main.py --auth-mode interactive --services M365 Entra
 # Stream 2: Defender — role: Security Reader
 python main.py --auth-mode interactive --services Defender
 
-# Stream 3: Purview — role: Compliance Reader
+# Stream 3: Purview — role: Global Reader (or Compliance Administrator for full PowerShell)
 python main.py --auth-mode interactive --services Purview
 
 # Stream 4: Power Platform — role: Power Platform Admin
@@ -283,59 +278,6 @@ python main.py --auth-mode interactive
 Browser opens → login + MFA → assessment runs. No consent prompts (admin pre-granted).
 
 > **Role separation:** The admin creates apps (Step 2) and never runs the assessment. The assessment user runs the tool (Step 4) and never needs admin privileges.
-
----
-
-## Stream Reference
-
-```mermaid
-flowchart TD
-    LOGIN["Browser Login + MFA"]
-
-    LOGIN --> CRED1["CLIENT_ID_STREAM1"]
-    LOGIN --> CRED2["CLIENT_ID_STREAM2"]
-    LOGIN --> PS["PowerShell Interactive"]
-
-    CRED1 --> S1["Stream 1: M365 & Entra\nLicenses, Identity, Directory, Policies"]
-    CRED2 --> S2["Stream 2: Defender\nThreats, Endpoints, Incidents"]
-    PS --> S3["Stream 3: Purview\nCompliance, DLP, Labels"]
-    PS --> S4["Stream 4: Power Platform\nEnvironments, DLP, AI Builder"]
-    PS --> S5["Stream 5: A365\nAgent Catalog"]
-
-    S1 --> OUT["Assessment Report"]
-    S2 --> OUT
-    S3 --> OUT
-    S4 --> OUT
-    S5 --> OUT
-
-    classDef login fill:#4B0082,stroke:#6A0DAD,color:#FFF,stroke-width:2px
-    classDef cred fill:#0D47A1,stroke:#1565C0,color:#FFF,stroke-width:2px
-    classDef ps fill:#4E342E,stroke:#6D4C41,color:#FFF,stroke-width:2px
-    classDef s1 fill:#1565C0,stroke:#0D47A1,color:#FFF
-    classDef s2 fill:#E65100,stroke:#BF360C,color:#FFF
-    classDef s3 fill:#2E7D32,stroke:#1B5E20,color:#FFF
-    classDef s4 fill:#6A1B9A,stroke:#4A148C,color:#FFF
-    classDef s5 fill:#00695C,stroke:#004D40,color:#FFF
-    classDef out fill:#1A237E,stroke:#283593,color:#FFF,stroke-width:2px
-
-    class LOGIN login
-    class CRED1,CRED2 cred
-    class PS ps
-    class S1 s1
-    class S2 s2
-    class S3 s3
-    class S4 s4
-    class S5 s5
-    class OUT out
-```
-
-| `--services` | Stream | Env Variable | User Role |
-|---|---|---|---|
-| `M365` / `Entra` | 1 | `CLIENT_ID_STREAM1` | Global Reader |
-| `Defender` | 2 | `CLIENT_ID_STREAM2` | Security Reader |
-| `Purview` | 3 | `CLIENT_ID_STREAM3` | Compliance Reader |
-| `"Power Platform"` / `"Copilot Studio"` | 4 | `CLIENT_ID_STREAM4` | Power Platform Admin |
-| `A365` | 5 | *(none — uses `Connect-MgGraph`)* | Global Reader |
 
 ---
 

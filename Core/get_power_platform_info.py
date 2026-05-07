@@ -1,6 +1,7 @@
 import asyncio
 from .get_power_platform_client import get_power_platform_client
 from azure.core.exceptions import HttpResponseError, ClientAuthenticationError
+from msgraph.generated.models.o_data_errors.o_data_error import ODataError
 from .get_recommendation import get_recommendation
 import sys
 from .spinner import get_timestamp, _stdout_lock
@@ -73,14 +74,28 @@ async def get_power_platform_info(client, services_and_licenses=None, pp_client=
         pp_client: Power Platform Management API client (optional)
     """
     # Use cached data if available
-    if services_and_licenses:
-        subscribed_skus = await services_and_licenses.get_raw_subscribed_skus()
-        if not subscribed_skus:
+    try:
+        if services_and_licenses:
+            subscribed_skus = await services_and_licenses.get_raw_subscribed_skus()
+            if not subscribed_skus:
+                subscribed_skus = await fetch_power_platform_licenses(client)
+        else:
             subscribed_skus = await fetch_power_platform_licenses(client)
-    else:
-        subscribed_skus = await fetch_power_platform_licenses(client)
-    
-    pp_plans = get_power_platform_service_plans(subscribed_skus)
+        
+        pp_plans = get_power_platform_service_plans(subscribed_skus)
+    except (HttpResponseError, ODataError) as e:
+        with _stdout_lock:
+            status = getattr(e, 'status_code', None) or getattr(e, 'response_status_code', 403)
+            if status == 403:
+                print(f"[{get_timestamp()}] ⚠️  Power Platform information: Insufficient permissions for license check (requires Organization.Read.All)")
+            else:
+                print(f"[{get_timestamp()}] ⚠️  Power Platform information: HTTP {status}")
+        return {
+            'available': False,
+            'reason': f'Insufficient permissions (HTTP {status})',
+            'has_power_platform': False,
+            'recommendations': []
+        }
     
     recommendations = []
     

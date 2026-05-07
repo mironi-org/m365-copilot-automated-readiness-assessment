@@ -61,7 +61,7 @@ async def orchestrate(tenant_id, services=None):
             show_graph_messages = run_all or any(s.lower() in graph_services for s in service_config['services'])
 
             # Initialize Graph client and licenses
-            client, services_and_licenses, has_license_data = await setup_graph_and_licenses(tenant_id, show_graph_messages)
+            client, services_and_licenses, has_license_data = await setup_graph_and_licenses(tenant_id, show_graph_messages, services=service_config['services'])
         else:
             client = None
             services_and_licenses = None

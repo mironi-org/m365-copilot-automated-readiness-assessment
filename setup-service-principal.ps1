@@ -187,7 +187,7 @@ $defenderResourceId = "fc780465-2017-40d4-a0c5-307022471b92"
 
 # Defender API - Application Permissions
 $defenderPermissions = @(
-    @{ Id = "ea8291d3-4b9a-44b5-bc3a-6cea3026dc79"; Name = "Machine.Read.All" }
+    @{ Id = "fbd3d33a-b1f5-4573-906c-51b39682fbcf"; Name = "Machine.Read" }
 )
 
 # Office 365 Management API Resource ID (for advanced audit logs & Copilot telemetry)

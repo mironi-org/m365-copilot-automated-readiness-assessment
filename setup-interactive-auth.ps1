@@ -100,28 +100,28 @@ $powerPlatformResourceId = "00000007-0000-0000-c000-000000000000"
 # ═══════════════════════════════════════════════════════════════════════════════
 
 $stream1Permissions = @(
-    @{ Id = "4b46f140-f6f5-4dba-a41a-49ec8cd0e372"; Name = "Organization.Read.All" }
+    @{ Id = "4908d5b9-3fb2-4b1e-9336-1888b7937185"; Name = "Organization.Read.All" }
     @{ Id = "06da0dbc-49e2-44d2-8312-53f166ab848a"; Name = "Directory.Read.All" }
     @{ Id = "a154be20-db9c-4678-8ab7-66f6cc099a59"; Name = "User.Read.All" }
     @{ Id = "5f8c59db-677d-491f-a6b8-5f174b11ec1d"; Name = "Group.Read.All" }
-    @{ Id = "c79f8c76-f2a0-44d0-a5e2-dbeb5be3791b"; Name = "Application.Read.All" }
+    @{ Id = "c79f8feb-a9db-4090-85f9-90d820caa0eb"; Name = "Application.Read.All" }
     @{ Id = "ebfcd32b-babb-40f4-a14b-42706e83bd28"; Name = "AccessReview.Read.All" }
-    @{ Id = "572fea84-0151-49b2-9301-11cb16974571"; Name = "Policy.Read.All" }
+    @{ Id = "572fea84-0151-49b2-9301-11cb16974376"; Name = "Policy.Read.All" }
     @{ Id = "741c54c3-0c1e-44a1-818b-3f97ab4e8c83"; Name = "RoleManagement.Read.Directory" }
     @{ Id = "aec28ec7-4d02-4e8c-b864-50163aea77eb"; Name = "UserAuthenticationMethod.Read.All" }
     @{ Id = "02e97553-ed7b-43d0-ab3c-f8bace0d040c"; Name = "Reports.Read.All" }
     @{ Id = "e4c9e354-4dc5-45b8-9e7c-e1393b0b1a20"; Name = "AuditLog.Read.All" }
-    @{ Id = "205e70e5-aba6-4c52-a36b-21726571567a"; Name = "Sites.Read.All" }
-    @{ Id = "10465720-29dd-4523-a11a-6a75c743c9d9"; Name = "Files.Read.All" }
-    @{ Id = "a38267a5-26b6-4d76-9c9a-4fb26f9c2689"; Name = "ExternalConnection.Read.All" }
+    @{ Id = "205e70e5-aba6-4c52-a976-6d2d46c48043"; Name = "Sites.Read.All" }
+    @{ Id = "df85f4d6-205c-4ac5-a5ea-6bf408dba283"; Name = "Files.Read.All" }
+    @{ Id = "a38267a5-26b6-4d76-9493-935b7599116b"; Name = "ExternalConnection.Read.All" }
     @{ Id = "9d8982ae-4365-4f57-95e9-d6032a4c0b87"; Name = "Channel.ReadBasic.All" }
-    @{ Id = "a65f2972-a4f8-4f5e-afd7-69ccb046d5dc"; Name = "OnlineMeetings.Read" }
+    @{ Id = "9be106e1-f4e3-4df5-bdff-e4bc531cbe43"; Name = "OnlineMeetings.Read" }
     @{ Id = "33b1df99-4b29-4548-9339-7a7b83eaeebc"; Name = "Bookings.Read.All" }
-    @{ Id = "ba47897c-39ec-4d83-8086-ee8256fa737d"; Name = "People.Read.All" }
-    @{ Id = "90c0fe26-aa48-4005-95f1-1a7b26d44b32"; Name = "Printer.Read.All" }
-    @{ Id = "f6a3db3e-f7e8-4ed2-a414-557c8c9830be"; Name = "DeviceManagementManagedDevices.Read.All" }
-    @{ Id = "f1493658-876a-4c87-8571-7b3e2d43203c"; Name = "DeviceManagementConfiguration.Read.All" }
-    @{ Id = "ba1ba90b-2d8f-487e-9f16-80728d85bb5c"; Name = "NetworkAccessPolicy.Read.All" }
+    @{ Id = "b89f9189-71a5-4e70-b041-9887f0bc7e4a"; Name = "People.Read.All" }
+    @{ Id = "3a736c8a-018e-460a-b60c-863b2683e8bf"; Name = "Printer.Read.All" }
+    @{ Id = "314874da-47d6-4978-88dc-cf0d37f0bb82"; Name = "DeviceManagementManagedDevices.Read.All" }
+    @{ Id = "f1493658-876a-4c87-8fa7-edb559b3476a"; Name = "DeviceManagementConfiguration.Read.All" }
+    @{ Id = "ba22922b-752c-446f-89d7-a2d92398fceb"; Name = "NetworkAccessPolicy.Read.All" }
 )
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -130,16 +130,16 @@ $stream1Permissions = @(
 
 $stream2GraphPermissions = @(
     @{ Id = "64733abd-851e-478a-bffb-e47a14b18235"; Name = "SecurityEvents.Read.All" }
-    @{ Id = "53e6783e-b127-4a35-ab3a-6a52d80a9077"; Name = "SecurityIncident.Read.All" }
+    @{ Id = "b9abcc4f-94fc-4457-9141-d20ce80ec952"; Name = "SecurityIncident.Read.All" }
     @{ Id = "9cc427b4-2004-41c5-aa22-757b755e9796"; Name = "ThreatIndicators.Read.All" }
     @{ Id = "b152eca8-ea73-4a48-8c98-1a6742673d99"; Name = "ThreatHunting.Read.All" }
-    @{ Id = "cac97e40-6730-457d-ad8d-4852fddab7ad"; Name = "ThreatAssessment.Read.All" }
+    @{ Id = "cac97e40-6730-457d-ad8d-4852fddab7ad"; Name = "ThreatAssessment.ReadWrite.All" }
     @{ Id = "d04bb851-cb7c-4146-97c7-ca3e71baf56c"; Name = "IdentityRiskyUser.Read.All" }
     @{ Id = "8f6a01e7-0391-4ee5-aa22-a3af122cef27"; Name = "IdentityRiskEvent.Read.All" }
 )
 
 $stream2DefenderPermissions = @(
-    @{ Id = "ea8291d3-4b9a-44b5-bc3a-6cea3026dc79"; Name = "Machine.Read.All" }
+    @{ Id = "fbd3d33a-b1f5-4573-906c-51b39682fbcf"; Name = "Machine.Read" }
 )
 
 $stream2Office365Permissions = @(
@@ -152,8 +152,8 @@ $stream2Office365Permissions = @(
 # ═══════════════════════════════════════════════════════════════════════════════
 
 $stream3Permissions = @(
-    @{ Id = "45124f67-6f5a-4aa6-ac16-50b9a0d03be8"; Name = "InformationProtectionPolicy.Read" }
-    @{ Id = "572fea84-0151-49b2-9301-11cb16974571"; Name = "Policy.Read.All" }
+    @{ Id = "4ad84827-5578-4e18-ad7a-86530b12f884"; Name = "InformationProtectionPolicy.Read" }
+    @{ Id = "572fea84-0151-49b2-9301-11cb16974376"; Name = "Policy.Read.All" }
 )
 
 # ═══════════════════════════════════════════════════════════════════════════════

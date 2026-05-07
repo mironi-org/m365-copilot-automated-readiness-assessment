@@ -5,6 +5,7 @@ from Recommendations.defender.defender_insights import DefenderInsights
 import sys
 from .spinner import get_timestamp, _stdout_lock
 from azure.core.exceptions import HttpResponseError
+from msgraph.generated.models.o_data_errors.o_data_error import ODataError
 
 async def fetch_defender_licenses(client):
     """Fetch license data to check if Defender is licensed"""
@@ -65,15 +66,16 @@ async def get_defender_info(client, defender_client=None, services_and_licenses=
         
         defender_plans = get_defender_service_plans(subscribed_skus)
     
-    except HttpResponseError as e:
+    except (HttpResponseError, ODataError) as e:
         with _stdout_lock:
-            if e.status_code == 403:
-                print(f"[{get_timestamp()}] ⚠️  Defender information: Insufficient permissions (requires admin role)")
+            status = getattr(e, 'status_code', None) or getattr(e, 'response_status_code', 403)
+            if status == 403:
+                print(f"[{get_timestamp()}] ⚠️  Defender information: Insufficient permissions for license check (requires Organization.Read.All)")
             else:
-                print(f"[{get_timestamp()}] ⚠️  Defender information: HTTP {e.status_code}")
+                print(f"[{get_timestamp()}] ⚠️  Defender information: HTTP {status}")
         return {
             'available': False,
-            'reason': f'Insufficient permissions (HTTP {e.status_code})',
+            'reason': f'Insufficient permissions (HTTP {status})',
             'has_defender': False,
             'recommendations': []
         }

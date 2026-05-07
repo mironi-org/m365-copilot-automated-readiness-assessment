@@ -43,19 +43,20 @@ async def load_modules_and_analyze(tenant_id, service_config):
         print(f"[{get_timestamp()}] 🚀 Starting orchestration for: {', '.join(service_config['services'])}...")
 
 
-async def setup_graph_and_licenses(tenant_id, show_graph_messages):
+async def setup_graph_and_licenses(tenant_id, show_graph_messages, services=None):
     """Initialize Microsoft Graph client and ServicesAndLicenses container.
     
     Args:
         tenant_id: Azure tenant ID
         show_graph_messages: Whether to print Graph connection messages
+        services: List of service names for per-stream CLIENT_ID resolution
         
     Returns:
         Tuple: (graph_client, services_and_licenses, has_license_data)
     """
     # Always create Graph client (needed for license checks in all services)
     # Use silent mode for PowerShell-only runs (Purview, Power Platform)
-    client = await get_graph_client(tenant_id, silent=not show_graph_messages)
+    client = await get_graph_client(tenant_id, silent=not show_graph_messages, services=services)
     if show_graph_messages:
         print(f"[{get_timestamp()}] ✅ Connected to Microsoft Graph (Service Principal)")
     

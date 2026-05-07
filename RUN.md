@@ -105,7 +105,7 @@ Run the service principal setup script to create Azure AD app registration with 
    - InformationProtectionPolicy.Read - Read information protection policies
    
    **Microsoft Defender for Endpoint API:**
-   - Machine.Read.All - Read machine data
+   - Machine.Read - Read machine data
    
    **Office 365 Management API:**
    - ActivityFeed.Read - Read activity feed

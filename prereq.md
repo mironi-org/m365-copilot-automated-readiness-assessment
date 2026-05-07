@@ -153,7 +153,7 @@ The `setup-service-principal.ps1` script **automatically detects** Defender API 
 **What happens during script execution:**
 - ✅ Script connects to Microsoft Graph
 - ✅ Looks up WindowsDefenderATP service principal
-- ✅ Dynamically fetches the 6 permission GUIDs (Machine.Read.All, Vulnerability.Read.All, etc.)
+- ✅ Dynamically fetches the 6 permission GUIDs (Machine.Read, Vulnerability.Read.All, etc.)
 - ✅ Adds them to your app registration
 
 **How WindowsDefenderATP Service Principal Gets Created:**

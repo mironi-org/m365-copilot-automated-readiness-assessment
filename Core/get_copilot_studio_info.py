@@ -3,6 +3,7 @@ from .get_recommendation import get_recommendation
 import sys
 from .spinner import get_timestamp, _stdout_lock
 from azure.core.exceptions import HttpResponseError, ClientAuthenticationError
+from msgraph.generated.models.o_data_errors.o_data_error import ODataError
 from .service_categorization import determine_service_type
 
 async def fetch_copilot_studio_licenses(client):
@@ -52,15 +53,16 @@ async def get_copilot_studio_info(client, services_and_licenses=None, pp_client=
             subscribed_skus = await fetch_copilot_studio_licenses(client)
         
         copilot_plans = get_copilot_studio_service_plans(subscribed_skus)
-    except HttpResponseError as e:
+    except (HttpResponseError, ODataError) as e:
         with _stdout_lock:
-            if e.status_code == 403:
-                print(f"[{get_timestamp()}] ⚠️  Copilot Studio information: Insufficient permissions (requires admin role)")
+            status = getattr(e, 'status_code', None) or getattr(e, 'response_status_code', 403)
+            if status == 403:
+                print(f"[{get_timestamp()}] ⚠️  Copilot Studio information: Insufficient permissions for license check (requires Organization.Read.All)")
             else:
-                print(f"[{get_timestamp()}] ⚠️  Copilot Studio information: HTTP {e.status_code}")
+                print(f"[{get_timestamp()}] ⚠️  Copilot Studio information: HTTP {status}")
         return {
             'available': False,
-            'reason': f'Insufficient permissions (HTTP {e.status_code})',
+            'reason': f'Insufficient permissions (HTTP {status})',
             'has_copilot_studio': False,
             'recommendations': []
         }

@@ -33,7 +33,11 @@ def _load_env():
                 line = line.strip()
                 if line and not line.startswith('#') and '=' in line:
                     key, value = line.split('=', 1)
-                    os.environ[key.strip()] = value.strip()
+                    value = value.strip()
+                    # Strip inline comments (e.g. "value  # comment")
+                    if '  #' in value:
+                        value = value[:value.index('  #')].strip()
+                    os.environ[key.strip()] = value
 
 # Load environment variables on import
 _load_env()

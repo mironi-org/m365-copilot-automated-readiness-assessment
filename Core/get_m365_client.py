@@ -11,6 +11,21 @@ from azure.core.exceptions import HttpResponseError
 from .spinner import get_timestamp, _stdout_lock
 from datetime import datetime, timedelta
 
+
+def _is_permission_error(response):
+    """Check if a response from asyncio.gather(return_exceptions=True) is a permission (403) error."""
+    if not isinstance(response, Exception):
+        return False
+    # Check for HTTP 403 in various exception types
+    if isinstance(response, HttpResponseError) and response.status_code == 403:
+        return True
+    # MS Graph SDK raises ODataError for permission issues
+    error_str = str(response).lower()
+    if '403' in error_str or 'forbidden' in error_str or 'authorization' in error_str or 'insufficient privileges' in error_str:
+        return True
+    return False
+
+
 async def get_m365_client(graph_client):
     """
     Get M365 usage analytics and deployment data from Microsoft Graph.
@@ -146,8 +161,11 @@ async def get_m365_client(graph_client):
             except Exception as e:
                 client.sites_summary = {'total': 0, 'error': f'Failed to process sites: {str(e)}'}
         else:
-            client.sites_summary = {'total': 0, 'error': 'Sites.Read.All permission missing or API error'}
-            client.missing_permissions.append('Sites.Read.All')
+            if _is_permission_error(sites_response):
+                client.sites_summary = {'total': 0, 'error': 'Sites.Read.All permission missing'}
+                client.missing_permissions.append('Sites.Read.All')
+            else:
+                client.sites_summary = {'total': 0, 'error': 'No sites data available'}
         
         # Process Users data
         users_response = response_dict.get('users')
@@ -186,8 +204,11 @@ async def get_m365_client(graph_client):
             except Exception as e:
                 client.users_summary = {'total': 0, 'error': f'Failed to process users: {str(e)}'}
         else:
-            client.users_summary = {'total': 0, 'error': 'User.Read.All permission missing or API error'}
-            client.missing_permissions.append('User.Read.All')
+            if _is_permission_error(users_response):
+                client.users_summary = {'total': 0, 'error': 'User.Read.All permission missing'}
+                client.missing_permissions.append('User.Read.All')
+            else:
+                client.users_summary = {'total': 0, 'error': 'No user data available'}
         
         # Process Email Activity Report
         # Parse CSV and extract key metrics for Exchange/Outlook observations
@@ -222,9 +243,12 @@ async def get_m365_client(graph_client):
             else:
                 client.email_summary = {'available': False, 'error': 'No data in report'}
         else:
-            client.email_summary = {'available': False}
-            if 'Reports.Read.All' not in client.missing_permissions:
-                client.missing_permissions.append('Reports.Read.All')
+            if _is_permission_error(email_response):
+                client.email_summary = {'available': False, 'error': 'Reports.Read.All permission missing'}
+                if 'Reports.Read.All' not in client.missing_permissions:
+                    client.missing_permissions.append('Reports.Read.All')
+            else:
+                client.email_summary = {'available': False, 'error': 'No email activity data in reporting period'}
         
         # Process Teams Activity Report
         # Parse CSV and extract Teams usage metrics

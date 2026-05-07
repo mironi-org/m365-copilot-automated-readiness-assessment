@@ -31,15 +31,21 @@ async def analyze_service_plans(tenant_id, services_to_run):
         return
     
     # Get all service plans from tenant (shows auth messages)
-    client = await get_graph_client(tenant_id)
+    client = await get_graph_client(tenant_id, services=services_to_run)
     
     # Start progress bar for data fetching
     start_time = time.time()
     sys.stdout.write(f"[{get_timestamp()}]   Analyzing Features      [{'░' * 20}]   0%")
     sys.stdout.flush()
     
-    # Fetch subscription data
-    skus = await client.subscribed_skus.get()
+    # Fetch subscription data (requires Organization.Read.All — may fail for stream-specific apps)
+    try:
+        skus = await client.subscribed_skus.get()
+    except Exception:
+        # App may not have Organization.Read.All (e.g. Defender-only app)
+        sys.stdout.write(f"\r[{get_timestamp()}]   ✓ Analyzing Features      [{'█' * 20}] 100% (skipped - no license permission)\n")
+        sys.stdout.flush()
+        return
     
     # Update to 50% after fetch completes
     elapsed = time.time() - start_time
