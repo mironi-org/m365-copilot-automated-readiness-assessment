@@ -33,7 +33,7 @@ This guide covers **option 2: Interactive Browser Authentication**.
 flowchart LR
     S1["STEP 1\nPrerequisites"]
     S2["STEP 2\nApp Registrations\n(Admin — one-time)"]
-    S3["STEP 3\nConfigure .env"]
+    S3["STEP 3\nPre-Assessment\nConfiguration"]
     S4["STEP 4\nRun"]
 
     S1 --> S2 --> S3 --> S4
@@ -222,19 +222,23 @@ No app registration needed. Uses `Connect-MgGraph` interactive browser login.
 
 ---
 
-## STEP 3: Configure `.env`
+## STEP 3: Pre-Assessment Configuration
 
-Create `.env` in the project root:
+Create `.env` in the project root with only the streams you plan to run.
+Each `CLIENT_ID_STREAMx` corresponds to a specific assessment stream — you only need the ones relevant to your execution:
 
 ```ini
 TENANT_ID=your-tenant-id-guid
 AUTH_MODE=interactive
 
-CLIENT_ID_STREAM1=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-CLIENT_ID_STREAM2=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-CLIENT_ID_STREAM3=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-CLIENT_ID_STREAM4=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+# Only include the CLIENT_IDs for the streams you will run:
+CLIENT_ID_STREAM1=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx   # needed for: --services M365 Entra
+CLIENT_ID_STREAM2=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx   # needed for: --services Defender
+CLIENT_ID_STREAM3=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx   # needed for: --services Purview
+CLIENT_ID_STREAM4=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx   # needed for: --services "Power Platform"
 ```
+
+For example, if you only run Defender and Purview, your `.env` only needs `CLIENT_ID_STREAM2` and `CLIENT_ID_STREAM3`.
 
 Also set `TENANT_ID` in `params.py`:
 
@@ -242,7 +246,7 @@ Also set `TENANT_ID` in `params.py`:
 TENANT_ID = "your-tenant-id-guid"
 ```
 
-> Only configure the streams you plan to use. No `CLIENT_SECRET` needed — all apps are public clients.
+> No `CLIENT_SECRET` needed — all apps are public clients (delegated auth only).
 
 ---
 
