@@ -38,4 +38,4 @@ env/
 ENV/
 
 # Generated reports and exports
-Reports/
+Reports/logs/

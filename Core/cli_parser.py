@@ -28,10 +28,17 @@ Examples:
   python main.py --tenant-id "your-tenant-id" --services Purview
 
   # Interactive browser authentication (no client secret needed):
-  python main.py --auth-mode interactive
-  python main.py --auth-mode interactive --services M365 Entra
-  python main.py --auth-mode interactive --services Defender
-        '''
+    python main.py --auth-mode interactive
+    python main.py --auth-mode interactive --services M365 Entra
+    python main.py --auth-mode interactive --services Defender
+
+        # Device code authentication (assessment step only, not for setup):
+        # (Do NOT use device_code with setup-interactive-auth.ps1)
+        python main.py --auth-mode device_code
+        python main.py --auth-mode device_code --services M365 Entra
+        python main.py --auth-mode device_code --services Defender
+        python main.py --auth-mode device_code --services Purview
+                '''
     )
     parser.add_argument(
         '--tenant-id', 
@@ -48,9 +55,9 @@ Examples:
     parser.add_argument(
         '--auth-mode',
         type=str,
-        choices=['service_principal', 'interactive'],
+        choices=['service_principal', 'interactive', 'device_code'],
         default=None,
-        help='Authentication mode: service_principal (default) or interactive (browser login with MFA). Can also be set via AUTH_MODE in .env'
+        help='Authentication mode: service_principal (default), interactive (browser login with MFA), or device_code (enter code at verification URL, assessment step only — NOT for setup). Can also be set via AUTH_MODE in .env'
     )
     
     args = parser.parse_args()
@@ -60,8 +67,13 @@ Examples:
         import os
         args.auth_mode = os.environ.get('AUTH_MODE', 'service_principal')
     
-    # Set AUTH_MODE in environment for downstream modules
+    # Device code is a variant of interactive auth — map it internally
+    # so all downstream code only checks AUTH_MODE == 'interactive'
     import os
-    os.environ['AUTH_MODE'] = args.auth_mode
+    if args.auth_mode == 'device_code':
+        os.environ['AUTH_MODE'] = 'interactive'
+        os.environ['USE_DEVICE_CODE'] = '1'
+    else:
+        os.environ['AUTH_MODE'] = args.auth_mode
     
     return args

@@ -1,4 +1,4 @@
-from azure.identity import ClientSecretCredential, InteractiveBrowserCredential
+from azure.identity import ClientSecretCredential, DeviceCodeCredential, InteractiveBrowserCredential
 from msgraph import GraphServiceClient
 import httpx
 import logging
@@ -23,6 +23,17 @@ STREAM_CLIENT_ID_MAP = {
     'A365':            'CLIENT_ID_STREAM5',
 }
 
+# Secondary API scopes each service needs beyond https://graph.microsoft.com/.default.
+# Pre-warming these after the initial Graph auth lets MSAL use the cached refresh token
+# to silently acquire them — avoiding extra device-code prompts during asyncio.gather.
+# Secondary API scopes that need pre-warming with the per-stream credential.
+# Power Platform & Copilot Studio are NOT listed here because their data
+# collection uses Connect-AzAccount (PowerShell) / AzureCliCredential (Python),
+# not the Stream 4 app credential.
+_SECONDARY_SCOPES = {
+    'Defender':       ['https://api.securitycenter.microsoft.com/.default'],
+}
+
 # Load .env file into environment variables (no external dependency)
 def _load_env():
     """Load .env file if it exists (in project root, not Core folder)"""
@@ -37,24 +48,54 @@ def _load_env():
                     # Strip inline comments (e.g. "value  # comment")
                     if '  #' in value:
                         value = value[:value.index('  #')].strip()
-                    os.environ[key.strip()] = value
+                    # Only set if not already in environment (CLI args take precedence over .env)
+                    os.environ.setdefault(key.strip(), value)
 
 # Load environment variables on import
 _load_env()
 
 # Module-level cache: per client_id credential and graph client
-_credentials = {}   # {client_id: InteractiveBrowserCredential}
+_credentials = {}   # {client_id: credential}
 _graph_clients = {} # {client_id: GraphServiceClient}
 
 # Legacy single-credential cache (service principal mode)
 _graph_client = None
 _credential = None
 
-async def get_graph_client(tenant_id=None, silent=False, services=None):
-    """Get Microsoft Graph SDK client using service principal or interactive browser authentication.
+
+def _device_code_prompt(verification_uri, user_code, expires_on):
+    """Callback that prints the device code login instructions to stdout."""
+    import sys
+    print(f"\n{'=' * 70}")
+    print(f"  To sign in, open a browser and go to:  {verification_uri}")
+    print(f"  Enter the code:  {user_code}")
+    print(f"{'=' * 70}\n")
+    sys.stdout.flush()
+
+
+def _create_interactive_credential(tenant_id, client_id):
+    """Create the appropriate interactive credential based on USE_DEVICE_CODE env var.
     
-    In interactive mode with per-stream apps: resolves the correct CLIENT_ID based on
-    the requested services. Each stream gets its own credential + Graph client.
+    In interactive mode with per-stream apps: each stream's app has its own credential,
+    cached by client_id. Same stream won't prompt twice, different streams will each
+    require one auth (assuming admin consent is pre-granted for all app permissions).
+    """
+    if os.getenv('USE_DEVICE_CODE') == '1':
+        return DeviceCodeCredential(
+            tenant_id=tenant_id,
+            client_id=client_id,
+            prompt_callback=_device_code_prompt
+        )
+    return InteractiveBrowserCredential(
+        tenant_id=tenant_id,
+        client_id=client_id
+    )
+
+async def get_graph_client(tenant_id=None, silent=False, services=None):
+    """Get Microsoft Graph SDK client using service principal or delegated authentication.
+    
+    In interactive/device_code modes with per-stream apps: resolves the correct CLIENT_ID
+    based on the requested services. Each stream gets its own credential + Graph client.
     
     Args:
         tenant_id: Azure tenant ID (optional, read from .env if not provided)
@@ -88,18 +129,40 @@ async def get_graph_client(tenant_id=None, silent=False, services=None):
         if client_id in _graph_clients:
             return _graph_clients[client_id]
         
+        use_device_code = os.getenv('USE_DEVICE_CODE') == '1'
         if not silent:
-            print(f"[{get_timestamp()}] ℹ️     Authenticating with interactive browser login...")
+            method = 'device code flow' if use_device_code else 'interactive browser login'
+            print(f"[{get_timestamp()}] ℹ️     Authenticating with {method}...")
             import sys
             sys.stdout.flush()
         
         if client_id not in _credentials:
-            _credentials[client_id] = InteractiveBrowserCredential(
-                tenant_id=tenant_id,
-                client_id=client_id
-            )
+            _credentials[client_id] = _create_interactive_credential(tenant_id, client_id)
         
         credential = _credentials[client_id]
+        
+        # Force token acquisition NOW for non-silent mode — triggers the device
+        # code prompt or browser popup immediately, ensures "Authenticated" prints
+        # only after real auth.
+        # For silent mode (e.g. Purview-only): skip explicit get_token() and let
+        # the Graph SDK acquire the token lazily on the first API call.  This
+        # avoids a double device-code prompt caused by MSAL not serving the
+        # cached token to the SDK's internal get_token() call (azure-identity
+        # 1.25.x / msal 1.36.x).
+        token_acquired = False
+        if not silent:
+            try:
+                credential.get_token('https://graph.microsoft.com/.default')
+                token_acquired = True
+            except Exception:
+                print(f"[{get_timestamp()}] ⚠️  Graph token not available for this app (may lack Graph API permissions)")
+                import sys
+                sys.stdout.flush()
+            
+            if token_acquired:
+                print(f"[{get_timestamp()}] ✅ Authenticated successfully")
+                import sys
+                sys.stdout.flush()
         
         # For interactive with per-stream apps: use .default (admin pre-granted consent)
         scopes = ['https://graph.microsoft.com/.default']
@@ -110,11 +173,6 @@ async def get_graph_client(tenant_id=None, silent=False, services=None):
         )
         
         _graph_clients[client_id] = graph_client
-        
-        if not silent:
-            print(f"[{get_timestamp()}] ✅ Authenticated successfully")
-            import sys
-            sys.stdout.flush()
         
         return graph_client
     else:
@@ -245,10 +303,7 @@ def get_shared_credential(service_name=None):
         if client_id in _credentials:
             return _credentials[client_id]
         
-        cred = InteractiveBrowserCredential(
-            tenant_id=tenant_id,
-            client_id=client_id
-        )
+        cred = _create_interactive_credential(tenant_id, client_id)
         _credentials[client_id] = cred
         return cred
     else:
@@ -276,6 +331,45 @@ def get_power_platform_credential():
         ClientSecretCredential or InteractiveBrowserCredential instance
     """
     return get_shared_credential(service_name='Power Platform')
+
+
+def prewarm_credentials(services=None):
+    """Pre-warm the MSAL token cache for secondary API scopes.
+
+    Must be called AFTER the initial Graph authentication has completed (i.e., after
+    setup_graph_and_licenses), so MSAL can use the cached refresh token to silently
+    acquire tokens for secondary APIs (Defender, Power Platform, etc.).
+
+    Args:
+        services: List of service names being run (e.g. ['Defender', 'M365']).
+    """
+    if not services:
+        return
+
+    auth_mode = os.getenv('AUTH_MODE', 'service_principal')
+    if auth_mode != 'interactive':
+        return  # Service-principal credentials don't need pre-warming
+
+    seen = set()  # (client_id, scope) pairs already attempted
+    for service in services:
+        client_id_env = STREAM_CLIENT_ID_MAP.get(service)
+        if not client_id_env:
+            continue
+        client_id = os.getenv(client_id_env)
+        if not client_id or client_id not in _credentials:
+            continue  # Credential not yet created — Graph auth hasn't run for this stream
+
+        credential = _credentials[client_id]
+        for scope in _SECONDARY_SCOPES.get(service, []):
+            key = (client_id, scope)
+            if key in seen:
+                continue
+            seen.add(key)
+            try:
+                credential.get_token(scope)
+            except Exception:
+                pass  # Silent failure is handled when the pipeline actually needs the token
+
 
 async def get_api_client(service_name):
     """Get HTTP client with bearer token for specific API

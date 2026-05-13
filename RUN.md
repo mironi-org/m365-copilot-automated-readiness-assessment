@@ -156,9 +156,70 @@ python main.py --tenant-id "12345678-1234-1234-1234-123456789abc" --services Pur
 
 # All services for specific tenant (empty --services flag)
 python main.py --tenant-id "contoso.onmicrosoft.com" --services
+
+# Interactive browser delegated auth (no client secret)
+python main.py --auth-mode interactive --services M365 Entra
+
+# Device code delegated auth (shows URL + code in terminal)
+python main.py --auth-mode device_code --services M365 Entra
+
+# Purview with device_code mode (Graph delegated path + Purview PowerShell prompts)
+python main.py --auth-mode device_code --services Purview
 ```
 
 **Note:** Service names with spaces (`"Power Platform"`, `"Copilot Studio"`) must be enclosed in double quotes.
+
+**Run Examples: Interactive Browser Authentication by Stream:**
+
+```powershell
+# Stream 1 (M365 + Entra)
+python main.py --auth-mode interactive --services M365 Entra
+
+# Stream 2 (Defender)
+python main.py --auth-mode interactive --services Defender
+
+# Stream 3 (Purview)
+python main.py --auth-mode interactive --services Purview
+
+# Stream 4 (Power Platform)
+python main.py --auth-mode interactive --services "Power Platform"
+
+# Stream 4b (Copilot Studio)
+python main.py --auth-mode interactive --services "Copilot Studio"
+
+# Stream 5 (A365 / Agent 365)
+python main.py --auth-mode interactive --services A365
+
+# All services with interactive auth
+python main.py --auth-mode interactive
+```
+
+**Run Examples: Device Code Authentication by Stream:**
+
+```powershell
+# Stream 1 (M365 + Entra) with device code
+python main.py --auth-mode device_code --services M365 Entra
+
+# Stream 2 (Defender) with device code
+python main.py --auth-mode device_code --services Defender
+
+# Stream 3 (Purview) with device code
+python main.py --auth-mode device_code --services Purview
+
+# Stream 4 (Power Platform) with device code
+python main.py --auth-mode device_code --services "Power Platform"
+
+# Stream 5 (A365) with device code
+python main.py --auth-mode device_code --services A365
+
+# All services with device code
+python main.py --auth-mode device_code
+```
+
+**Configuration Examples:**
+
+- **Full Assessment**: `SERVICES = []` or `--services` (analyzes all available service areas)
+- **Targeted Assessment**: `SERVICES = ["M365", "Defender", "Entra"]` or `--services M365 Defender Entra`
 
 **Configuration Examples:**
 
@@ -180,11 +241,15 @@ python main.py --tenant-id "contoso.onmicrosoft.com" --services
    - Authenticates silently using CLIENT_ID and CLIENT_SECRET
    - No browser popup - authentication is automatic
 
+   **Delegated alternatives (no client secret):**
+   - `--auth-mode interactive`: opens browser login flow.
+   - `--auth-mode device_code`: prints verification URL + one-time code in terminal, then continues after sign-in.
+
 2. **Data Collection Progress**:
    - **M365, Entra, Defender**: Silent authentication via service principal
    - **Power Platform & Copilot Studio**: Web popup for user delegated authentication (if assessing these services)
    - **A365**: Interactive Microsoft Graph sign-in (account picker or device code fallback) for Copilot agent catalog access
-   - **Purview**: Web popup for Exchange Online PowerShell authentication (if assessing Purview)
+   - **Purview**: `collect_purview_data.ps1` uses PowerShell interactive prompts (Security & Compliance + Exchange Online) when assessing Purview
    
    See [Data Collection Details](#data-collection-details) for specific APIs and cmdlets used per service.
    
@@ -199,6 +264,10 @@ python main.py --tenant-id "contoso.onmicrosoft.com" --services
    [2026-01-06 14:31:35] ✅ Purview: 12 DLP policies retrieved
    [2026-01-06 14:31:42] 🔐 A365 sign-in required now. An account picker/browser prompt should open.
    [2026-01-06 14:31:58] ✅ A365 catalog retrieved and detail processing started
+   [2026-01-06 14:32:10] 🔐 Device code authentication required
+   [2026-01-06 14:32:10]    Go to: https://microsoft.com/devicelogin
+   [2026-01-06 14:32:10]    Enter code: ABCD-EFGH
+   [2026-01-06 14:32:10]    Waiting for sign-in completion...
    ```
 
 3. **Report Generation**:

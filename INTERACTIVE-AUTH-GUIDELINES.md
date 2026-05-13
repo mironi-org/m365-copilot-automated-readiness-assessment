@@ -2,12 +2,15 @@
 
 ## What Is This?
 
-The M365 Copilot Readiness Assessment tool can authenticate in two ways:
+The M365 Copilot Readiness Assessment tool can authenticate in three ways:
 
 1. **Service Principal** (default) — headless, one app with all permissions + a secret
 2. **Interactive Browser** — per-stream app registrations, delegated permissions, no secrets
+3. **Device Code** — same per-stream apps as Interactive, but instead of a browser popup the tool displays a code you enter at [https://microsoft.com/devicelogin](https://microsoft.com/devicelogin). Ideal for **headless machines, remote SSH sessions, or environments where `http://localhost` is blocked**.
 
-This guide covers **option 2: Interactive Browser Authentication**.
+This guide covers **options 2 & 3: Delegated Authentication** (Interactive Browser and Device Code).
+
+> **Key point:** Interactive and Device Code share the same app registrations, `.env` config, and setup steps. The only difference is how you authenticate at runtime (`--auth-mode interactive` vs `--auth-mode device_code`).
 
 ### How It Works
 
@@ -15,7 +18,8 @@ This guide covers **option 2: Interactive Browser Authentication**.
 - Streams 1–4 each get their **own app registration** with only the permissions they need
 - Stream 5 (A365 / Copilot) authenticates via **Connect-MgGraph** (Microsoft Graph PowerShell) — no app registration needed
 - A tenant admin creates the 4 apps **once** and grants admin consent
-- Users run the tool → browser opens → they login with MFA → done
+- **Interactive Browser:** Users run the tool → browser opens → login with MFA → done
+- **Device Code:** Users run the tool → terminal shows a code → open any browser (even on another device) → enter code → login with MFA → done
 - No consent prompts at runtime (admin pre-granted)
 - No client secrets to manage or rotate
 
@@ -38,15 +42,20 @@ flowchart LR
 
     S1 --> S2 --> S3 --> S4
 
+    S4 --> M1["--auth-mode interactive\n(browser popup)"]
+    S4 --> M2["--auth-mode device_code\n(enter code at URL)"]
+
     classDef prereq fill:#37474F,stroke:#546E7A,color:#FFF,stroke-width:2px
     classDef appreg fill:#4A148C,stroke:#7B1FA2,color:#FFF,stroke-width:2px
     classDef env fill:#E65100,stroke:#FF6D00,color:#FFF,stroke-width:2px
     classDef run fill:#1B5E20,stroke:#43A047,color:#FFF,stroke-width:2px
+    classDef mode fill:#0D47A1,stroke:#1565C0,color:#FFF,stroke-width:2px
 
     class S1 prereq
     class S2 appreg
     class S3 env
     class S4 run
+    class M1,M2 mode
 ```
 
 ---
@@ -55,13 +64,22 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    LOGIN["Browser Login + MFA"]
+    AUTH{"Auth Mode?"}
 
-    LOGIN --> CRED1["CLIENT_ID_STREAM1"]
-    LOGIN --> CRED2["CLIENT_ID_STREAM2"]
-    LOGIN --> CRED3["CLIENT_ID_STREAM3"]
-    LOGIN --> CRED4["CLIENT_ID_STREAM4"]
-    LOGIN --> PS["PowerShell Interactive\n(Connect-MgGraph)"]
+    AUTH -->|"--auth-mode interactive"| BROWSER["Browser Login + MFA\n(popup on local machine)"]
+    AUTH -->|"--auth-mode device_code"| DEVICE["Device Code Flow\n(enter code at microsoft.com/devicelogin)"]
+
+    BROWSER --> CRED1["CLIENT_ID_STREAM1"]
+    BROWSER --> CRED2["CLIENT_ID_STREAM2"]
+    BROWSER --> CRED3["CLIENT_ID_STREAM3"]
+    BROWSER --> CRED4["CLIENT_ID_STREAM4"]
+    BROWSER --> PS["PowerShell Interactive\n(Connect-MgGraph)"]
+
+    DEVICE --> CRED1
+    DEVICE --> CRED2
+    DEVICE --> CRED3
+    DEVICE --> CRED4
+    DEVICE --> PS
 
     CRED1 --> S1["Stream 1: M365 & Entra\nLicenses, Identity, Directory, Policies"]
     CRED2 --> S2["Stream 2: Defender\nThreats, Endpoints, Incidents"]
@@ -75,7 +93,9 @@ flowchart TD
     S4 --> OUT
     S5 --> OUT
 
+    classDef authNode fill:#263238,stroke:#37474F,color:#FFF,stroke-width:2px
     classDef login fill:#4B0082,stroke:#6A0DAD,color:#FFF,stroke-width:2px
+    classDef device fill:#BF360C,stroke:#E65100,color:#FFF,stroke-width:2px
     classDef cred fill:#0D47A1,stroke:#1565C0,color:#FFF,stroke-width:2px
     classDef ps fill:#4E342E,stroke:#6D4C41,color:#FFF,stroke-width:2px
     classDef s1 fill:#1565C0,stroke:#0D47A1,color:#FFF
@@ -85,7 +105,9 @@ flowchart TD
     classDef s5 fill:#00695C,stroke:#004D40,color:#FFF
     classDef out fill:#1A237E,stroke:#283593,color:#FFF,stroke-width:2px
 
-    class LOGIN login
+    class AUTH authNode
+    class BROWSER login
+    class DEVICE device
     class CRED1,CRED2,CRED3,CRED4 cred
     class PS ps
     class S1 s1
@@ -113,8 +135,9 @@ flowchart TD
 - Python 3.9+
 - PowerShell 7+
 - Run `pip install -r requirements.txt`
-- Default browser available (opens for login)
-- `http://localhost` not blocked by firewall/proxy
+- **Interactive Browser only:** Default browser available + `http://localhost` not blocked by firewall/proxy
+- **Device Code:** No browser or localhost required on the machine running the tool — you can sign in from any device
+- **Stream 4 (Power Platform) only:** `Az.Accounts` PowerShell module (`Install-Module Az.Accounts -Scope CurrentUser`). The Power Platform collector authenticates via `Connect-AzAccount`, which requires this module.
 
 ---
 
@@ -210,9 +233,17 @@ Microsoft Graph → Delegated: `InformationProtectionPolicy.Read`, `Policy.Read.
 
 **Stream 4** — `Readiness - Power Platform` · Role: `Power Platform Administrator` · Save as `CLIENT_ID_STREAM4`
 
-Power Platform API (`https://api.bap.microsoft.com`) → Delegated: `user_impersonation`
+- Microsoft Graph → Delegated: `Organization.Read.All`
 
-> Power Platform data is mainly collected via PowerShell subprocess.
+> **Note:** The Stream 4 app registration only needs **Graph API** permissions. Power Platform data is collected via a separate `Connect-AzAccount` call (Az PowerShell module), which authenticates independently — it does NOT use this app registration.
+
+> **How Stream 4 works:** Stream 4 authenticates in two steps:
+> 1. **Graph API** — uses `CLIENT_ID_STREAM4` to acquire a Graph token (for `Organization.Read.All` license queries)
+> 2. **Power Platform API** — launches a PowerShell subprocess that runs `Connect-AzAccount` (from `Az.Accounts` module) to access Power Platform environments and policies
+>
+> In **device code** mode, you will see **two separate device code prompts** — complete each one in order.
+>
+> **Prerequisites:** `Az.Accounts` PowerShell module must be installed (`Install-Module Az.Accounts -Scope CurrentUser`).
 
 ---
 
@@ -242,6 +273,8 @@ CLIENT_ID_STREAM4=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx   # needed for: --service
 
 For example, if you only run Defender and Purview, your `.env` only needs `CLIENT_ID_STREAM2` and `CLIENT_ID_STREAM3`.
 
+> **Device Code note:** The `.env` is identical for both `--auth-mode interactive` and `--auth-mode device_code`. Keep `AUTH_MODE=interactive` in `.env` — the `--auth-mode device_code` CLI flag handles the switch internally.
+
 Also set `TENANT_ID` in `params.py`:
 
 ```python
@@ -259,7 +292,12 @@ TENANT_ID = "your-tenant-id-guid"
 The assessment user only needs:
 - The `.env` file (from admin)
 - The correct Entra role for their stream
-- A browser for login
+- **Interactive:** A browser on the same machine
+- **Device Code:** A browser on any device (phone, another PC, etc.)
+
+### Interactive Browser (`--auth-mode interactive`)
+
+Browser opens automatically on the local machine → login + MFA → assessment runs.
 
 ```powershell
 # Stream 1: M365 + Entra — role: Global Reader
@@ -272,6 +310,9 @@ python main.py --auth-mode interactive --services Defender
 python main.py --auth-mode interactive --services Purview
 
 # Stream 4: Power Platform — role: Power Platform Admin
+# NOTE: Stream 4 triggers TWO auth prompts:
+#   1) Graph API (for Organization.Read.All license queries)
+#   2) Connect-AzAccount (for Power Platform API access)
 python main.py --auth-mode interactive --services "Power Platform" "Copilot Studio"
 
 # Stream 5: A365 — role: Global Reader + Microsoft.Graph PowerShell module
@@ -281,17 +322,51 @@ python main.py --auth-mode interactive --services A365
 python main.py --auth-mode interactive
 ```
 
-Browser opens → login + MFA → assessment runs. No consent prompts (admin pre-granted).
+### Device Code (`--auth-mode device_code`)
+
+Terminal displays a code → open [https://microsoft.com/devicelogin](https://microsoft.com/devicelogin) on **any device** → enter code → login with MFA → assessment runs.
+
+Ideal for: headless VMs, remote SSH sessions, or environments where `http://localhost` is blocked.
+
+```powershell
+# Stream 1: M365 + Entra — role: Global Reader
+python main.py --auth-mode device_code --services M365 Entra
+
+# Stream 2: Defender — role: Security Reader
+python main.py --auth-mode device_code --services Defender
+
+# Stream 3: Purview — role: Global Reader (or Compliance Administrator for full PowerShell)
+python main.py --auth-mode device_code --services Purview
+
+# Stream 4: Power Platform — role: Power Platform Admin
+# NOTE: Stream 4 triggers TWO device code prompts:
+#   1) Graph API device code (for Organization.Read.All license queries)
+#   2) Connect-AzAccount device code (for Power Platform API access via Az.Accounts)
+# Complete each device code prompt in order before proceeding.
+python main.py --auth-mode device_code --services "Power Platform" "Copilot Studio"
+
+# Stream 5: A365 — role: Global Reader + Microsoft.Graph PowerShell module
+python main.py --auth-mode device_code --services A365
+
+# All streams — requires all roles + all CLIENT_IDs
+python main.py --auth-mode device_code
+```
+
+> No consent prompts at runtime for either mode (admin pre-granted).
 
 > **Role separation:** The admin creates apps (Step 2) and never runs the assessment. The assessment user runs the tool (Step 4) and never needs admin privileges.
 
 ---
 
-## Comparison: Service Principal vs Interactive
+## Comparison: Service Principal vs Interactive vs Device Code
 
-| | Service Principal | Interactive (per-stream) |
-|---|---|---|
-| `.env` | `TENANT_ID` + `CLIENT_ID` + `CLIENT_SECRET` | `TENANT_ID` + `AUTH_MODE=interactive` + `CLIENT_ID_STREAMx` |
-| Apps | 1 app (all permissions) | 1 app per stream (isolated) |
-| User action | None (headless) | Browser login + MFA |
-| Security | Secret must be rotated | No secret — delegated only |
+| | Service Principal | Interactive (per-stream) | Device Code (per-stream) |
+|---|---|---|---|
+| `.env` | `TENANT_ID` + `CLIENT_ID` + `CLIENT_SECRET` | `TENANT_ID` + `AUTH_MODE=interactive` + `CLIENT_ID_STREAMx` | Same as Interactive |
+| CLI flag | `--auth-mode service_principal` | `--auth-mode interactive` | `--auth-mode device_code` |
+| Apps | 1 app (all permissions) | 1 app per stream (isolated) | Same as Interactive |
+| User action | None (headless) | Browser popup + MFA | Enter code at URL + MFA |
+| Browser needed | No | Yes (local machine) | Any device (phone, another PC) |
+| `http://localhost` | Not required | Must be reachable | Not required |
+| Security | Secret must be rotated | No secret — delegated only | No secret — delegated only |
+| Best for | CI/CD, automation | Workstation with browser | Headless VM, SSH, restricted network |

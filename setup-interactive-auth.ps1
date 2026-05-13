@@ -157,8 +157,12 @@ $stream3Permissions = @(
 )
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# STREAM 4 PERMISSIONS: Power Platform API
+# STREAM 4 PERMISSIONS: Power Platform API + minimal Graph
 # ═══════════════════════════════════════════════════════════════════════════════
+
+$stream4GraphPermissions = @(
+    @{ Id = "4908d5b9-3fb2-4b1e-9336-1888b7937185"; Name = "Organization.Read.All" }
+)
 
 $stream4PowerPlatformPermissions = @(
     @{ Id = "8578e004-a5c6-46e7-913e-12f58912df43"; Name = "user_impersonation" }
@@ -241,6 +245,14 @@ function Grant-AdminConsent {
     )
 
     Write-Info "Granting admin consent for: $AppName"
+
+    # Ensure service principal exists (required for consent to work)
+    $sp = Get-MgServicePrincipal -Filter "appId eq '$AppId'" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $sp) {
+        Write-Info "Creating service principal for $AppName..."
+        $sp = New-MgServicePrincipal -AppId $AppId -ErrorAction Stop
+        Write-Success "Service principal created: $($sp.Id)"
+    }
 
     $adminConsentUrl = "https://login.microsoftonline.com/$TenantId/adminconsent?client_id=$AppId"
     Start-Process $adminConsentUrl
@@ -334,6 +346,17 @@ if ($selectedStreams -contains 2) {
     }
 }
 
+if ($selectedStreams -contains 2 -and -not $defenderSPExists) {
+    Write-Host "" -ForegroundColor Red
+    Write-Host "❌ Defender for Endpoint was NOT found in your tenant." -ForegroundColor Red
+    Write-Host "   Cannot grant Defender permissions to the Stream 2 app." -ForegroundColor Red
+    Write-Host "   To enable Stream 2 (Defender), activate Defender for Endpoint (XDR) in your tenant before running this script." -ForegroundColor Red
+    Write-Host "   Enabling Defender will create the required API and allow permission assignment." -ForegroundColor Red
+    Write-Host "" -ForegroundColor Red
+    Write-Host "   There is no need to continue to the assessment for Stream 2 until Defender is enabled." -ForegroundColor Red
+    exit 1
+}
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # CREATE PER-STREAM APPS
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -406,11 +429,14 @@ if ($selectedStreams -contains 3) {
 }
 
 # ─── STREAM 4 ───
+# Stream 4 app ONLY needs Graph (Organization.Read.All for license queries).
+# Power Platform data is collected via Connect-AzAccount (Az PowerShell) in the
+# PowerShell collector script — it does NOT use this app registration.
 if ($selectedStreams -contains 4) {
     $resourceAccess = @(
         @{
-            ResourceAppId = $powerPlatformResourceId
-            ResourceAccess = @($stream4PowerPlatformPermissions | ForEach-Object {
+            ResourceAppId = $graphResourceId
+            ResourceAccess = @($stream4GraphPermissions | ForEach-Object {
                 @{ Id = $_.Id; Type = "Scope" }
             })
         }

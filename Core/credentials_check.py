@@ -35,9 +35,9 @@ def load_env_file(base_path=None):
                     key, value = line.split('=', 1)
                     key = key.strip()
                     value = value.strip()
-                    # Only set if value is non-empty (don't overwrite with blanks)
+                    # Only set if value is non-empty AND not already set (CLI args take precedence over .env)
                     if value:
-                        os.environ[key] = value
+                        os.environ.setdefault(key, value)
 
 
 def check_credentials():
@@ -79,6 +79,7 @@ def validate_credentials_or_exit(get_timestamp_func):
         print("  Option 1 (Service Principal): Run .\\setup-service-principal.ps1")
         print("  Option 2 (Interactive Browser): Set TENANT_ID + AUTH_MODE=interactive in .env")
         print("           then use: python main.py --auth-mode interactive")
+        print("  Option 3 (Device Code): python main.py --auth-mode device_code")
         print()
         print("See RUN.md for detailed setup instructions.")
         sys.exit(1)

@@ -61,39 +61,47 @@ try {
         # Not connected, will connect below
     }
     
-    # Connect only if not already connected
-    if (-not $ippsConnected) {
-        Write-Progress "      → Connecting to Security & Compliance..." -NoNewline
-        Connect-IPPSSession -ErrorAction Stop -WarningAction SilentlyContinue | Out-Null
+    # Connect Exchange Online first — IPPSSession can often reuse the EXO token
+    if (-not $exoConnected) {
+        Write-Progress "      → Connecting to Exchange Online..." -NoNewline
+        if ($env:USE_DEVICE_CODE -eq "1") {
+            Connect-ExchangeOnline -Device -ShowBanner:$false -ErrorAction Stop -WarningAction SilentlyContinue
+        } else {
+            Connect-ExchangeOnline -ShowBanner:$false -ErrorAction Stop -WarningAction SilentlyContinue | Out-Null
+        }
         Write-Progress " ✓" -ForegroundColor Green
-        # Output to stderr so Python can display in real-time
-        [Console]::Error.WriteLine("AUTH_COMPLETE:Security & Compliance")
+        [Console]::Error.WriteLine("AUTH_COMPLETE:Exchange Online")
+    } else {
+        [Console]::Error.WriteLine("AUTH_COMPLETE:Exchange Online")
     }
     
-    if (-not $exoConnected) {
-        # Re-check if Exchange was auto-connected by IPPSSession
+    if (-not $ippsConnected) {
+        # Re-check if IPPS was auto-connected by ExchangeOnline session
         try {
-            Get-OrganizationConfig -ErrorAction Stop | Out-Null
-            $exoConnected = $true
-            # If auto-connected, send message immediately
-            [Console]::Error.WriteLine("AUTH_COMPLETE:Exchange Online")
+            Get-DlpCompliancePolicy -ErrorAction Stop | Out-Null
+            $ippsConnected = $true
+            [Console]::Error.WriteLine("AUTH_COMPLETE:Security & Compliance")
         } catch {
             # Not auto-connected, need to connect manually
-            Write-Progress "      → Connecting to Exchange Online..." -NoNewline
-            Connect-ExchangeOnline -ShowBanner:$false -ErrorAction Stop -WarningAction SilentlyContinue | Out-Null
+            Write-Progress "      → Connecting to Security & Compliance..." -NoNewline
+            if ($env:USE_DEVICE_CODE -eq "1") {
+                Connect-IPPSSession -Device -ErrorAction Stop -WarningAction SilentlyContinue
+            } else {
+                Connect-IPPSSession -ErrorAction Stop -WarningAction SilentlyContinue | Out-Null
+            }
             Write-Progress " ✓" -ForegroundColor Green
-            # Output to stderr so Python can display in real-time
-            [Console]::Error.WriteLine("AUTH_COMPLETE:Exchange Online")
+            [Console]::Error.WriteLine("AUTH_COMPLETE:Security & Compliance")
         }
     } else {
-        # Already connected, send confirmation
-        [Console]::Error.WriteLine("AUTH_COMPLETE:Exchange Online")
+        [Console]::Error.WriteLine("AUTH_COMPLETE:Security & Compliance")
     }
     
     if ($ippsConnected -and $exoConnected) {
         Write-Progress "      ✓ Using existing connections" -ForegroundColor Green
     }
 } catch {
+    python main.py --auth-mode device_code --services Purview    # Always write errors to stderr so Python can display them (Write-Progress is a no-op in -DataOnly mode)
+    [Console]::Error.WriteLine("ERROR: Connection failed: $($_.Exception.Message)")
     Write-Progress "      ✗ Connection failed: $($_.Exception.Message)" -ForegroundColor Red
     Write-Progress ""
     Write-Progress "Please ensure you have:" -ForegroundColor Yellow

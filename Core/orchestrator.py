@@ -9,6 +9,7 @@ from .orchestrator_validation import validate_and_prepare_services
 from .orchestrator_setup import load_modules_and_analyze, setup_graph_and_licenses
 from .orchestrator_powershell import collect_power_platform_data
 from .orchestrator_pipelines import create_pipelines
+from .get_graph_client import prewarm_credentials
 
 # Service-specific imports are now lazy-loaded based on SERVICES parameter
 
@@ -62,6 +63,12 @@ async def orchestrate(tenant_id, services=None):
 
             # Initialize Graph client and licenses
             client, services_and_licenses, has_license_data = await setup_graph_and_licenses(tenant_id, show_graph_messages, services=service_config['services'])
+
+            # Pre-warm secondary API token scopes (Defender, Power Platform, etc.)
+            # MUST run after Graph auth completes so MSAL has a refresh token it can
+            # exchange silently for the secondary scopes.  This prevents extra device-code
+            # prompts from appearing mid-collection inside asyncio.gather tasks.
+            prewarm_credentials(services=service_config['services'])
         else:
             client = None
             services_and_licenses = None

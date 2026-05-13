@@ -27,7 +27,7 @@ async def collect_power_platform_data(tenant_id, run_power_platform, run_copilot
     ps_script_path = os.path.join(os.path.dirname(__file__), "..", "collect_power_platform_and_copilot_studio_data.ps1")
     
     process = subprocess.Popen(
-        ["pwsh", "-File", ps_script_path, "-DataOnly", "-TenantId", tenant_id],
+        ["pwsh", "-ExecutionPolicy", "Bypass", "-File", ps_script_path, "-DataOnly", "-TenantId", tenant_id],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -144,17 +144,21 @@ async def collect_purview_data_via_powershell():
     Returns:
         bool: True if data collection succeeded, False otherwise
     """
+    use_device_code = os.environ.get('USE_DEVICE_CODE') == '1'
     with _stdout_lock:
         sys.stdout.write(f'[{get_timestamp()}]   ℹ️  Launching PowerShell to collect Purview data (requires interactive auth)...\n')
-        sys.stdout.write(f'[{get_timestamp()}]   ⚠️  Browser authentication windows will appear twice (Security & Compliance, then Exchange Online)\n')
-        sys.stdout.write(f'[{get_timestamp()}]   ⚠️  Check if browser window is hidden behind other apps/screens\n')
+        if use_device_code:
+            sys.stdout.write(f'[{get_timestamp()}]   ⚠️  Device code prompts will appear for Exchange Online, then Security & Compliance\n')
+        else:
+            sys.stdout.write(f'[{get_timestamp()}]   ⚠️  Browser authentication windows will appear twice (Exchange Online, then Security & Compliance)\n')
+            sys.stdout.write(f'[{get_timestamp()}]   ⚠️  Check if browser window is hidden behind other apps/screens\n')
         sys.stdout.flush()
     
     # Invoke collect_purview_data.ps1 in DataOnly mode with real-time stderr streaming
     # PS1 files are in parent directory, not in Core
     ps_script = os.path.join(os.path.dirname(__file__), '..', 'collect_purview_data.ps1')
     process = subprocess.Popen(
-        ['pwsh', '-File', ps_script, '-DataOnly'],
+        ['pwsh', '-ExecutionPolicy', 'Bypass', '-File', ps_script, '-DataOnly'],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -199,44 +203,75 @@ async def collect_purview_data_via_powershell():
                 sys.stdout.write('\r' + ' ' * 120 + '\r')
                 sys.stdout.flush()
     
-    # Start spinner for first authentication
-    start_spinner('Waiting for Security & Compliance authentication...')
+    # Start spinner for first authentication (Exchange Online first, then IPPS can reuse token)
+    start_spinner('Waiting for Exchange Online authentication...')
+    
+    # Shared buffer for stdout lines (threaded reader fills it, main thread extracts JSON later)
+    stdout_lines = []
+    
+    # Stream stdout in real-time — device code prompts from MSAL go to stdout via Console.WriteLine
+    def stream_stdout():
+        try:
+            for line in process.stdout:
+                stripped = line.rstrip()
+                stdout_lines.append(stripped)
+                # Display device code prompts in real-time (MSAL writes these to Console/stdout)
+                lower = stripped.lower()
+                if stripped and ('devicelogin' in lower or 'enter the code' in lower or 'microsoft.com/device' in lower):
+                    stop_spinner()
+                    with _stdout_lock:
+                        sys.stdout.write(f'\n{stripped}\n\n')
+                        sys.stdout.flush()
+        except ValueError:
+            pass
     
     # Stream stderr in real-time to show authentication progress
     def stream_stderr():
         try:
             for line in process.stderr:
                 line = line.strip()
+                if not line:
+                    continue
                 if line.startswith('AUTH_COMPLETE:'):
                     service = line.split(':', 1)[1]
                     stop_spinner()
                     with _stdout_lock:
                         sys.stdout.write(f'[{get_timestamp()}]   ✅ {service} authentication accepted\n')
-                        # After Security & Compliance, prompt for Exchange Online
-                        if 'Security & Compliance' in service:
-                            sys.stdout.write(f'[{get_timestamp()}]   ⚠️  Please provide credentials for Exchange Online authentication...\n')
+                        # After Exchange Online, prompt for Security & Compliance
+                        if 'Exchange Online' in service:
+                            sys.stdout.write(f'[{get_timestamp()}]   ⚠️  Please provide credentials for Security & Compliance authentication...\n')
                             sys.stdout.flush()
-                            # Start spinner for Exchange Online auth
-                            start_spinner('Waiting for Exchange Online authentication...')
+                            # Start spinner for Security & Compliance auth
+                            start_spinner('Waiting for Security & Compliance authentication...')
                         else:
                             sys.stdout.flush()
+                else:
+                    stop_spinner()
+                    with _stdout_lock:
+                        sys.stdout.write(f'[{get_timestamp()}]   {line}\n')
+                        sys.stdout.flush()
         except ValueError:
             # Pipe closed, thread can exit
             pass
     
+    stdout_thread = threading.Thread(target=stream_stdout, daemon=True)
+    stdout_thread.start()
     stderr_thread = threading.Thread(target=stream_stderr, daemon=True)
     stderr_thread.start()
     
-    # Wait for process to complete and get stdout (don't use communicate())
-    stdout = process.stdout.read()
+    # Wait for process to complete
     process.wait()
     result_returncode = process.returncode
     
     # Stop any remaining spinner
     stop_spinner()
     
-    # Give stderr thread time to finish processing remaining lines
+    # Give threads time to finish processing remaining lines
+    stdout_thread.join(timeout=2.0)
     stderr_thread.join(timeout=2.0)
+    
+    # Reconstruct stdout from buffered lines
+    stdout = '\n'.join(stdout_lines)
     
     if result_returncode != 0:
         with _stdout_lock:
