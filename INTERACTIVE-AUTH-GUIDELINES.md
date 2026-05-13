@@ -59,12 +59,14 @@ flowchart TD
 
     LOGIN --> CRED1["CLIENT_ID_STREAM1"]
     LOGIN --> CRED2["CLIENT_ID_STREAM2"]
-    LOGIN --> PS["PowerShell Interactive"]
+    LOGIN --> CRED3["CLIENT_ID_STREAM3"]
+    LOGIN --> CRED4["CLIENT_ID_STREAM4"]
+    LOGIN --> PS["PowerShell Interactive\n(Connect-MgGraph)"]
 
     CRED1 --> S1["Stream 1: M365 & Entra\nLicenses, Identity, Directory, Policies"]
     CRED2 --> S2["Stream 2: Defender\nThreats, Endpoints, Incidents"]
-    PS --> S3["Stream 3: Purview\nCompliance, DLP, Labels"]
-    PS --> S4["Stream 4: Power Platform\nEnvironments, DLP, AI Builder"]
+    CRED3 --> S3["Stream 3: Purview\nCompliance, DLP, Labels"]
+    CRED4 --> S4["Stream 4: Power Platform\nEnvironments, DLP, AI Builder"]
     PS --> S5["Stream 5: A365\nAgent Catalog"]
 
     S1 --> OUT["Assessment Report"]
@@ -84,7 +86,7 @@ flowchart TD
     classDef out fill:#1A237E,stroke:#283593,color:#FFF,stroke-width:2px
 
     class LOGIN login
-    class CRED1,CRED2 cred
+    class CRED1,CRED2,CRED3,CRED4 cred
     class PS ps
     class S1 s1
     class S2 s2
