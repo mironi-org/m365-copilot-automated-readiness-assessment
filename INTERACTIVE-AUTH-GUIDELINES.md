@@ -307,9 +307,20 @@ Browser opens automatically on the local machine → login + MFA → assessment 
 python main.py --auth-mode interactive --services M365 Entra
 
 # Stream 2: Defender — role: Security Reader
+# NOTE: Stream 2 triggers TWO auth prompts:
+#   1) Graph API (for licenses, security alerts, incidents, secure scores)
+#   2) Defender API (for machines, vulnerabilities, advanced hunting)
+# These are separate Microsoft services requiring independent sign-ins.
+# After each authentication, the tool proceeds automatically to the next step.
 python main.py --auth-mode interactive --services Defender
 
 # Stream 3: Purview — role: Global Reader (or Compliance Administrator for full PowerShell)
+# NOTE: Stream 3 triggers FOUR auth prompts:
+#   1) Graph API (license check)
+#   2) Graph API (Purview data — sensitivity labels, DLP policies)
+#   3) Exchange Online (PowerShell connection for mail-related Purview data)
+#   4) Security & Compliance (PowerShell connection for compliance center data)
+# After each authentication, the tool proceeds automatically to the next step.
 python main.py --auth-mode interactive --services Purview
 
 # Stream 4: Power Platform — role: Power Platform Admin
@@ -340,9 +351,20 @@ Ideal for: headless VMs, remote SSH sessions, or environments where `http://loca
 python main.py --auth-mode device_code --services M365 Entra
 
 # Stream 2: Defender — role: Security Reader
+# NOTE: Stream 2 triggers TWO device code prompts:
+#   1) Graph API (for licenses, security alerts, incidents, secure scores)
+#   2) Defender API (for machines, vulnerabilities, advanced hunting)
+# These are separate Microsoft services requiring independent sign-ins.
+# After each authentication, the tool proceeds automatically to the next step.
 python main.py --auth-mode device_code --services Defender
 
 # Stream 3: Purview — role: Global Reader (or Compliance Administrator for full PowerShell)
+# NOTE: Stream 3 triggers FOUR device code prompts:
+#   1) Graph API (license check)
+#   2) Graph API (Purview data — sensitivity labels, DLP policies)
+#   3) Exchange Online (PowerShell connection for mail-related Purview data)
+#   4) Security & Compliance (PowerShell connection for compliance center data)
+# After each authentication, the tool proceeds automatically to the next step.
 python main.py --auth-mode device_code --services Purview
 
 # Stream 4: Power Platform — role: Power Platform Admin

@@ -56,13 +56,22 @@ async def setup_graph_and_licenses(tenant_id, show_graph_messages, services=None
     """
     # Always create Graph client (needed for license checks in all services)
     # Use silent mode for PowerShell-only runs (Purview, Power Platform)
+    # NOTE for Purview (Stream 3): this call triggers Auth #1 (DeviceCodeCredential for
+    # graph.microsoft.com/.default) which is redundant — acquire_purview_tokens() later
+    # acquires the same scope via MSAL. Auth #1 has no printed label because silent=True.
     client = await get_graph_client(tenant_id, silent=not show_graph_messages, services=services)
     
     # Setup services container (needed by all pipelines)
     services_and_licenses = ServicesAndLicenses()
     has_license_data = False
     try:
-        subscribed_skus = await client.subscribed_skus.get()
+        # Reuse SKUs cached by analyze_service_plans() to avoid a second
+        # subscribed_skus.get() call which triggers a duplicate device-code
+        # prompt (MSAL cache bug in azure-identity 1.25.x / msal 1.36.x).
+        from . import get_graph_client as _gc_module
+        subscribed_skus = _gc_module._cached_subscribed_skus
+        if subscribed_skus is None:
+            subscribed_skus = await client.subscribed_skus.get()
         if subscribed_skus:
             await services_and_licenses.set_raw_subscribed_skus(subscribed_skus)
             has_license_data = True

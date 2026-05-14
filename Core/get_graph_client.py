@@ -31,6 +31,34 @@ STREAM_CLIENT_ID_MAP = {
 # Power Platform & Copilot Studio are NOT listed here because their data
 # collection uses Connect-AzAccount (PowerShell) / AzureCliCredential (Python),
 # not the Stream 4 app credential.
+#
+# ═══════════════════════════════════════════════════════════════════════════
+# DEVICE-CODE PROMPTS PER STREAM (expected behavior)
+# ═══════════════════════════════════════════════════════════════════════════
+# Stream 1 (M365/Entra)  — 1 prompt:  Graph API only
+#   Auth #1: graph.microsoft.com/.default — SKUs, users, groups, policies
+#
+# Stream 2 (Defender)    — 2 prompts: Graph API + Defender API (different resource)
+#   Auth #1: graph.microsoft.com/.default       — SKUs, security alerts, incidents, secure scores
+#   Auth #2: api.securitycenter.microsoft.com   — machines, vulnerabilities, advanced hunting
+#   These are separate OAuth resources; a single device-code flow cannot cover both.
+#   Auth #2 is triggered by prewarm_credentials() so it happens upfront, not mid-collection.
+#
+# Stream 3 (Purview)     — 4 prompts: Graph (azure-identity) + Graph (MSAL) + EXO (PS) + IPPS (PS)
+#   Auth #1: graph.microsoft.com/.default — SKU/license analysis (azure-identity DeviceCodeCredential)
+#            Triggered by setup_graph_and_licenses() → subscribed_skus.get(). No label printed
+#            (show_graph_messages=False for Purview). NOTE: this is redundant with Auth #2 because
+#            acquire_purview_tokens() runs AFTER setup_graph_and_licenses(), so _purview_tokens is
+#            not yet populated and _StaticTokenCredential cannot be used.
+#   Auth #2: graph.microsoft.com/.default — Graph token for Purview queries (labels, DLP)
+#            Triggered by acquire_purview_tokens() via MSAL PublicClientApplication (separate token
+#            cache from azure-identity). Prints "✅ Authenticated (Graph scope)".
+#   Auth #3: Exchange Online              — PowerShell Connect-ExchangeOnline -Device (EXO module)
+#   Auth #4: Security & Compliance        — PowerShell Connect-IPPSSession -Device (IPPS module)
+#
+# Stream 4 (Power Platform / Copilot Studio) — 0 Python prompts
+#   All auth handled by PowerShell Connect-AzAccount (separate device-code in PS).
+# ═══════════════════════════════════════════════════════════════════════════
 _SECONDARY_SCOPES = {
     'Defender':       ['https://api.securitycenter.microsoft.com/.default'],
 }
@@ -59,6 +87,11 @@ _load_env()
 _credentials = {}   # {client_id: credential}
 _graph_clients = {} # {client_id: GraphServiceClient}
 
+# Cached subscribed SKUs — populated by analyze_service_plans(), consumed by
+# setup_graph_and_licenses() to avoid a second subscribed_skus.get() call
+# which would trigger a duplicate device-code prompt (MSAL cache bug).
+_cached_subscribed_skus = None
+
 # Legacy single-credential cache (service principal mode)
 _graph_client = None
 _credential = None
@@ -74,6 +107,36 @@ def _device_code_prompt(verification_uri, user_code, expires_on):
     sys.stdout.flush()
 
 
+class _CachingCredentialWrapper:
+    """Wraps an azure-identity credential and caches tokens by scope.
+
+    Works around an MSAL bug (azure-identity 1.25.x / msal 1.36.x) where
+    DeviceCodeCredential.get_token() triggers a new device-code prompt even
+    when a valid token is already cached internally.  After the first
+    successful get_token() for a given scope, subsequent calls return the
+    cached AccessToken without touching MSAL.
+    """
+
+    def __init__(self, inner):
+        self._inner = inner
+        self._cache = {}          # {scope_key: AccessToken}
+
+    def get_token(self, *scopes, **kwargs):
+        import time
+        key = tuple(sorted(scopes))
+        cached = self._cache.get(key)
+        if cached and cached.expires_on > time.time() + 60:
+            return cached
+        token = self._inner.get_token(*scopes, **kwargs)
+        self._cache[key] = token
+        return token
+
+    # Forward any other attribute access to the inner credential so the
+    # Graph SDK (and other callers) can use it transparently.
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+
 def _create_interactive_credential(tenant_id, client_id):
     """Create the appropriate interactive credential based on USE_DEVICE_CODE env var.
     
@@ -82,15 +145,17 @@ def _create_interactive_credential(tenant_id, client_id):
     require one auth (assuming admin consent is pre-granted for all app permissions).
     """
     if os.getenv('USE_DEVICE_CODE') == '1':
-        return DeviceCodeCredential(
+        inner = DeviceCodeCredential(
             tenant_id=tenant_id,
             client_id=client_id,
             prompt_callback=_device_code_prompt
         )
-    return InteractiveBrowserCredential(
-        tenant_id=tenant_id,
-        client_id=client_id
-    )
+    else:
+        inner = InteractiveBrowserCredential(
+            tenant_id=tenant_id,
+            client_id=client_id
+        )
+    return _CachingCredentialWrapper(inner)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -109,12 +174,15 @@ _GRAPH_SCOPE = ['https://graph.microsoft.com/.default']
 def acquire_purview_tokens(tenant_id, client_id):
     """Acquire Graph token via a single device-code flow for Purview stream.
 
-    Uses MSAL PublicClientApplication directly (not azure-identity) so the
-    token can be shared with _StaticTokenCredential in get_graph_client(),
-    eliminating the redundant DeviceCodeCredential prompt.
+    This is Stream 3 Auth #2.  Uses MSAL PublicClientApplication directly
+    (not azure-identity) so the token can be shared with _StaticTokenCredential
+    in get_graph_client(), eliminating FUTURE redundant DeviceCodeCredential
+    prompts.  However, Auth #1 (from setup_graph_and_licenses) has already
+    occurred by the time this function runs — that prompt is currently
+    unavoidable without reordering the orchestration.
 
     EXO/IPPS tokens are NOT acquired here — PowerShell modules handle those
-    using Microsoft's first-party app IDs (proven working, no permission gaps).
+    using Microsoft's first-party app IDs (Auth #3 and #4).
 
     Args:
         tenant_id: Azure AD tenant ID

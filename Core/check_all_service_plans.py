@@ -39,8 +39,10 @@ async def analyze_service_plans(tenant_id, services_to_run):
     sys.stdout.flush()
     
     # Fetch subscription data (requires Organization.Read.All — may fail for stream-specific apps)
+    from . import get_graph_client as _gc_module
     try:
         skus = await client.subscribed_skus.get()
+        _gc_module._cached_subscribed_skus = skus  # Cache for setup_graph_and_licenses()
     except Exception:
         # App may not have Organization.Read.All (e.g. Defender-only app)
         sys.stdout.write(f"\r[{get_timestamp()}]   ✓ Analyzing Features      [{'█' * 20}] 100% (skipped - no license permission)\n")

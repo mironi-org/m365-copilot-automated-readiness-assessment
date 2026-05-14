@@ -150,7 +150,12 @@ async def collect_purview_data_via_powershell():
     """
     use_device_code = os.environ.get('USE_DEVICE_CODE') == '1'
     
-    # Pre-acquire Graph token via MSAL (populates _purview_tokens for _StaticTokenCredential)
+    # Pre-acquire Graph token via MSAL (populates _purview_tokens for _StaticTokenCredential).
+    # This is Stream 3 Auth #2 (graph.microsoft.com/.default via MSAL PublicClientApplication).
+    # NOTE: Auth #1 already happened earlier in setup_graph_and_licenses() via azure-identity's
+    # DeviceCodeCredential for the same scope. Auth #1 is redundant because this function runs
+    # AFTER setup_graph_and_licenses(), so _purview_tokens was not yet populated when
+    # get_graph_client() checked it.
     if use_device_code:
         try:
             from .get_graph_client import acquire_purview_tokens
@@ -162,6 +167,9 @@ async def collect_purview_data_via_powershell():
                 sys.stdout.write(f'[{get_timestamp()}]   ⚠️  Graph token pre-acquisition failed: {e}\n')
                 sys.stdout.flush()
     
+    # PowerShell will trigger two more device-code prompts:
+    # Stream 3 Auth #3: Connect-ExchangeOnline -Device (Exchange Online)
+    # Stream 3 Auth #4: Connect-IPPSSession -Device (Security & Compliance)
     with _stdout_lock:
         sys.stdout.write(f'[{get_timestamp()}]   ℹ️  Launching PowerShell to collect Purview data...\n')
         if use_device_code:
