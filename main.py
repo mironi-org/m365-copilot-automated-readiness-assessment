@@ -1,5 +1,9 @@
 import sys
 import asyncio
+import warnings
+
+# Suppress MSAL oauth2cli recommendation about response_mode='form_post'
+warnings.filterwarnings("ignore", message="response_mode='form_post'", category=UserWarning)
 
 # Check dependencies before proceeding
 from Core.check_dependencies import check_dependencies
@@ -51,5 +55,7 @@ if __name__ == "__main__":
             sys.exit(1)
         raise
     except Exception as e:
+        import traceback
         print(f"\n[{get_timestamp()}] ❌ Unexpected error: {e}")
+        traceback.print_exc()
         sys.exit(1)

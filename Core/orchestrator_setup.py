@@ -57,8 +57,6 @@ async def setup_graph_and_licenses(tenant_id, show_graph_messages, services=None
     # Always create Graph client (needed for license checks in all services)
     # Use silent mode for PowerShell-only runs (Purview, Power Platform)
     client = await get_graph_client(tenant_id, silent=not show_graph_messages, services=services)
-    if show_graph_messages:
-        print(f"[{get_timestamp()}] ✅ Connected to Microsoft Graph (Service Principal)")
     
     # Setup services container (needed by all pipelines)
     services_and_licenses = ServicesAndLicenses()
@@ -68,7 +66,10 @@ async def setup_graph_and_licenses(tenant_id, show_graph_messages, services=None
         if subscribed_skus:
             await services_and_licenses.set_raw_subscribed_skus(subscribed_skus)
             has_license_data = True
+        if show_graph_messages:
+            print(f"[{get_timestamp()}] ✅ Authenticated successfully")
     except Exception as e:
-        pass
+        if show_graph_messages:
+            print(f"[{get_timestamp()}] ⚠️  Graph API call failed (may lack permissions): {e}")
     
     return client, services_and_licenses, has_license_data

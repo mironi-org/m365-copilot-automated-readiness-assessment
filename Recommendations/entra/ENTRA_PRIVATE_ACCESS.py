@@ -61,12 +61,39 @@ def get_recommendation(sku_name, status="Success", client=None, entra_insights=N
                 priority="Medium",
                 status="Not Licensed"
             ))
-        elif private_status == 'PermissionDenied':
+        elif private_status == 'AccessDenied':
+            # Non-permission 403 — service not activated or directory role insufficient
+            error_detail = private_summary.get('error', 'Unknown')
             observations.append(new_recommendation(
                 service="Entra",
                 feature=feature_name,
-                observation="NetworkAccessPolicy.Read.All permission is not granted to the service principal",
-                recommendation="Grant the NetworkAccessPolicy.Read.All API permission to enable Global Secure Access monitoring for both Internet and Private Access features.",
+                observation=f"Global Secure Access (Private Access) API returned HTTP 403 ({error_detail})",
+                recommendation="The Global Secure Access API returned HTTP 403. This typically means "
+                               "Global Secure Access is not activated or licensed in your tenant. "
+                               "If the service is activated, ensure the signed-in user has the "
+                               "Global Secure Access Administrator directory role (or Global Administrator). "
+                               "A Global Reader role alone is not sufficient for this API.",
+                link_text="Global Secure Access Prerequisites",
+                link_url="https://learn.microsoft.com/entra/global-secure-access/overview-what-is-global-secure-access",
+                priority="Low",
+                status="Access Denied"
+            ))
+        elif private_status == 'PermissionDenied':
+            import os
+            auth_mode = os.getenv('AUTH_MODE', 'service_principal')
+            if auth_mode == 'interactive':
+                obs_text = "NetworkAccessPolicy.Read.All permission is not effective for the app registration"
+                rec_text = ("Grant admin consent for the NetworkAccessPolicy.Read.All permission on the Stream 1 app registration. "
+                            "Run setup-interactive-auth.ps1 to reconfigure, or grant consent in Azure Portal > App registrations > API permissions.")
+            else:
+                obs_text = "NetworkAccessPolicy.Read.All permission is not granted to the service principal"
+                rec_text = ("Grant the NetworkAccessPolicy.Read.All application permission to the service principal. "
+                            "Run setup-service-principal.ps1 to configure required permissions.")
+            observations.append(new_recommendation(
+                service="Entra",
+                feature=feature_name,
+                observation=obs_text,
+                recommendation=rec_text,
                 link_text="NetworkAccessPolicy Permission Reference",
                 link_url="https://learn.microsoft.com/graph/permissions-reference#networkaccesspolicyreadall",
                 priority="Low",

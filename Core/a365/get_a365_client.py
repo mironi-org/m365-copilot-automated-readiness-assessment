@@ -35,7 +35,12 @@ async def get_a365_client(tenant_id=None, silent=False):
         if not silent:
             print(f"[{get_timestamp()}] ⚠️  TENANT_ID is required for A365 data gathering")
         return None
-
+    client_id = os.getenv("CLIENT_ID_STREAM5", "")
+    if not client_id:
+        os.environ["A365_INTERACTIVE_AUTH"] = "0"
+        if not silent:
+            print(f"[{get_timestamp()}] \u26a0\ufe0f  CLIENT_ID_STREAM5 is required for A365 data gathering. Run setup-interactive-auth.ps1 -Streams 5")
+        return None
     temp_json = tempfile.NamedTemporaryFile(delete=False, suffix=".json")
     temp_json.close()
     token_temp = tempfile.NamedTemporaryFile(delete=False, suffix=".token.txt")
@@ -52,17 +57,40 @@ async def get_a365_client(tenant_id=None, silent=False):
         "  exit 61"
         "};"
         "Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null;"
-        "$scopes=@('User.Read','Directory.Read.All','CopilotPackages.Read.All');"
-        "Write-Host 'A365 sign-in required now. An account picker/browser prompt should open.' -ForegroundColor Yellow;"
-        "Write-Host 'Select the admin account to use for this run.' -ForegroundColor Yellow;"
-        "try {"
-        f"  Connect-MgGraph -TenantId '{tenant}' -NoWelcome -ContextScope Process -Scopes $scopes -ErrorAction Stop;"
+        "$scopes=@('User.Read','CopilotPackages.Read.All');"
+    )
+
+    use_device_code = os.getenv('USE_DEVICE_CODE') == '1'
+
+    if use_device_code:
+        ps_command += (
+            "Write-Host 'A365 sign-in required now. Complete device authentication in the browser within 120 seconds.' -ForegroundColor Yellow;"
+            "Write-Host 'Use https://microsoft.com/devicelogin if login.microsoft.com/device has browser issues.' -ForegroundColor Yellow;"
+            f"Connect-MgGraph -TenantId '{tenant}' -ClientId '{client_id}' -NoWelcome -ContextScope Process -UseDeviceAuthentication -Scopes $scopes -ErrorAction Stop;"
+        )
+    else:
+        ps_command += (
+            "Write-Host 'A365 sign-in required now. An account picker/browser prompt should open.' -ForegroundColor Yellow;"
+            "Write-Host 'Select the admin account to use for this run.' -ForegroundColor Yellow;"
+            "try {"
+            f"  Connect-MgGraph -TenantId '{tenant}' -ClientId '{client_id}' -NoWelcome -ContextScope Process -Scopes $scopes -ErrorAction Stop;"
+            "}"
+            "catch {"
+            "  Write-Host 'Interactive picker failed or was blocked. Falling back to device code...' -ForegroundColor Yellow;"
+            "  Write-Host 'Use https://microsoft.com/devicelogin if login.microsoft.com/device has browser issues.' -ForegroundColor Yellow;"
+            f"  Connect-MgGraph -TenantId '{tenant}' -ClientId '{client_id}' -NoWelcome -ContextScope Process -UseDeviceAuthentication -Scopes $scopes -ErrorAction Stop;"
+            "}"
+        )
+
+    ps_command += (
+        # --- Diagnostic: show token scopes after Connect ---
+        "$ctx = Get-MgContext;"
+        "if ($ctx) {"
+        "  Write-Host \"[A365-DIAG] Account: $($ctx.Account)\" -ForegroundColor Cyan;"
+        "  Write-Host \"[A365-DIAG] Scopes in token: $($ctx.Scopes -join ', ')\" -ForegroundColor Cyan;"
+        "  Write-Host \"[A365-DIAG] AuthType: $($ctx.AuthType)  AppName: $($ctx.AppName)\" -ForegroundColor Cyan;"
         "}"
-        "catch {"
-        "  Write-Host 'Interactive picker failed or was blocked. Falling back to device code...' -ForegroundColor Yellow;"
-        "  Write-Host 'Use https://microsoft.com/devicelogin if login.microsoft.com/device has browser issues.' -ForegroundColor Yellow;"
-        f"  Connect-MgGraph -TenantId '{tenant}' -NoWelcome -ContextScope Process -UseDeviceAuthentication -Scopes $scopes -ErrorAction Stop;"
-        "}"
+        # --- API call ---
         "try {"
         "  $response = Invoke-MgGraphRequest -Method GET -Uri 'https://graph.microsoft.com/beta/copilot/admin/catalog/packages' -ErrorAction Stop;"
         f"  $response | ConvertTo-Json -Depth 30 | Set-Content -Path '{temp_path}' -Encoding UTF8;"
@@ -78,13 +106,24 @@ async def get_a365_client(tenant_id=None, silent=False):
         "  exit 0"
         "}"
         "catch {"
+        "  Write-Host \"[A365-DIAG] API ERROR: $($_.Exception.Message)\" -ForegroundColor Red;"
         "  if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {"
         "    $code=[int]$_.Exception.Response.StatusCode;"
+        "    Write-Host \"[A365-DIAG] HTTP $code\" -ForegroundColor Red;"
+        "    $errBody='';"
+        "    try {"
+        "      $errBody = $_.Exception.Response.Content.ReadAsStringAsync().Result;"
+        "      if ($errBody) { Write-Host \"[A365-DIAG] Body: $errBody\" -ForegroundColor Red }"
+        "    } catch {}"
+        "    if ($code -eq 403 -and $errBody -match 'licensed') { exit 44 }"
         "    if ($code -eq 401) { exit 41 }"
         "    elseif ($code -eq 403) { exit 43 }"
         "    else { exit 50 }"
         "  }"
-        "  else { exit 51 }"
+        "  else {"
+        "    Write-Host \"[A365-DIAG] Non-HTTP error: $($_.Exception.GetType().FullName)\" -ForegroundColor Red;"
+        "    exit 51"
+        "  }"
         "}"
     )
 
@@ -94,14 +133,22 @@ async def get_a365_client(tenant_id=None, silent=False):
         if result.returncode != 0:
             os.environ["A365_INTERACTIVE_AUTH"] = "0"
             if not silent:
-                if result.returncode == 43:
-                    print(f"[{get_timestamp()}] ⚠️  Signed-in user is not authorized for Copilot admin catalog endpoint.")
+                if result.returncode == 44:
+                    print(f"[{get_timestamp()}] ⚠️  Tenant is not licensed for Microsoft 365 Copilot / Agent 365.")
+                    print(f"[{get_timestamp()}] ℹ️  The Copilot admin catalog API requires an active Copilot license on the tenant.")
+                    print(f"[{get_timestamp()}] ℹ️  A365 data gathering is skipped — this does not affect other service assessments.")
+                elif result.returncode == 43:
+                    print(f"[{get_timestamp()}] ⚠️  HTTP 403 from Copilot admin catalog endpoint. See [A365-DIAG] lines above for details.")
+                    print(f"[{get_timestamp()}] ℹ️  Possible causes: user not in AI/Copilot Admin role, or consent issue.")
+                    print(f"[{get_timestamp()}] ℹ️  To re-consent: .\\setup-interactive-auth.ps1 -Streams 5")
                 elif result.returncode == 41:
-                    print(f"[{get_timestamp()}] ⚠️  Token is unauthorized for Copilot admin catalog endpoint.")
+                    print(f"[{get_timestamp()}] ⚠️  HTTP 401 Unauthorized from Copilot admin catalog endpoint. Token may be invalid or expired.")
                 elif result.returncode == 61:
                     print(f"[{get_timestamp()}] ⚠️  Microsoft.Graph PowerShell module not found. Install it and retry.")
+                elif result.returncode == 51:
+                    print(f"[{get_timestamp()}] ⚠️  A365 data gathering failed with a non-HTTP error. See [A365-DIAG] lines above.")
                 else:
-                    print(f"[{get_timestamp()}] ⚠️  A365 data gathering failed via Graph PowerShell.")
+                    print(f"[{get_timestamp()}] ⚠️  A365 data gathering failed (exit code {result.returncode}). See [A365-DIAG] lines above.")
             return None
 
         if not os.path.exists(temp_json.name):

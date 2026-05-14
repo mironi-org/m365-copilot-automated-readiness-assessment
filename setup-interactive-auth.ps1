@@ -16,11 +16,10 @@
 
     Apps created:
     - Stream 1: "Readiness - M365 & Entra"     (22 Graph delegated permissions)
-    - Stream 2: "Readiness - Defender"          (7 Graph + 1 Defender API + 2 O365 Mgmt)
-    - Stream 3: "Readiness - Purview"           (2 Graph delegated permissions)
+    - Stream 2: "Readiness - Defender"          (9 Graph + 1 Defender API + 2 O365 Mgmt)
+    - Stream 3: "Readiness - Purview"           (3 Graph delegated permissions)
     - Stream 4: "Readiness - Power Platform"    (1 Power Platform API permission)
-
-    Stream 5 (A365/Copilot) uses Connect-MgGraph directly — no app registration needed.
+    - Stream 5: "Readiness - A365/Copilot"      (2 Graph delegated permissions)
 
     After creation, admin consent is granted for each app and CLIENT_ID_STREAMx
     values are written to .env.
@@ -84,6 +83,11 @@ $streamConfig = @{
         EnvVar = "CLIENT_ID_STREAM4"
         Role = "Power Platform Administrator"
     }
+    5 = @{
+        Name = "Readiness - A365/Copilot"
+        EnvVar = "CLIENT_ID_STREAM5"
+        Role = "AI Admin or Global Admin"
+    }
 }
 
 # Microsoft Graph API Resource ID
@@ -136,6 +140,8 @@ $stream2GraphPermissions = @(
     @{ Id = "cac97e40-6730-457d-ad8d-4852fddab7ad"; Name = "ThreatAssessment.ReadWrite.All" }
     @{ Id = "d04bb851-cb7c-4146-97c7-ca3e71baf56c"; Name = "IdentityRiskyUser.Read.All" }
     @{ Id = "8f6a01e7-0391-4ee5-aa22-a3af122cef27"; Name = "IdentityRiskEvent.Read.All" }
+    @{ Id = "4908d5b9-3fb2-4b1e-9336-1888b7937185"; Name = "Organization.Read.All" }
+    @{ Id = "06da0dbc-49e2-44d2-8312-53f166ab848a"; Name = "Directory.Read.All" }
 )
 
 $stream2DefenderPermissions = @(
@@ -154,6 +160,7 @@ $stream2Office365Permissions = @(
 $stream3Permissions = @(
     @{ Id = "4ad84827-5578-4e18-ad7a-86530b12f884"; Name = "InformationProtectionPolicy.Read" }
     @{ Id = "572fea84-0151-49b2-9301-11cb16974376"; Name = "Policy.Read.All" }
+    @{ Id = "4908d5b9-3fb2-4b1e-9336-1888b7937185"; Name = "Organization.Read.All" }
 )
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -166,6 +173,15 @@ $stream4GraphPermissions = @(
 
 $stream4PowerPlatformPermissions = @(
     @{ Id = "8578e004-a5c6-46e7-913e-12f58912df43"; Name = "user_impersonation" }
+)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# STREAM 5 PERMISSIONS: A365 / Copilot (Graph delegated)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+$stream5Permissions = @(
+    @{ Id = "a2dcfcb9-cbe8-4d42-812d-952e55cf7f3f"; Name = "CopilotPackages.Read.All" }
+    @{ Id = "e1fe6dd8-ba31-4d61-89e7-88639da4683d"; Name = "User.Read" }
 )
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -204,7 +220,13 @@ function New-StreamAppRegistration {
                 Remove-MgApplication -ApplicationId $existingApp.Id
                 Start-Sleep -Seconds 2
             } else {
-                Write-Info "Keeping existing app"
+                Write-Info "Keeping existing app — updating permissions to match current config..."
+                try {
+                    Update-MgApplication -ApplicationId $existingApp.Id -RequiredResourceAccess $RequiredResourceAccess -ErrorAction Stop
+                    Write-Success "Permissions updated on existing app: $AppName"
+                } catch {
+                    Write-Fail "Failed to update permissions on '$AppName': $_"
+                }
                 return $existingApp.AppId
             }
         }
@@ -257,9 +279,12 @@ function Grant-AdminConsent {
     $adminConsentUrl = "https://login.microsoftonline.com/$TenantId/adminconsent?client_id=$AppId"
     Start-Process $adminConsentUrl
 
-    Write-Host "    → Browser opened. Click 'Accept' then return here." -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "    → Browser opened. Click 'Accept' then return here." -ForegroundColor Yellow
     Write-Host "    → 'Can't reach this page' after Accept is NORMAL." -ForegroundColor Gray
-    $null = Read-Host "    Press ENTER after accepting consent"
+    do {
+        $confirmation = Read-Host "    Type 'done' after accepting consent in the browser"
+    } while ($confirmation -ne 'done')
     Write-Success "Admin consent granted for $AppName"
 }
 
@@ -279,9 +304,9 @@ Write-Host ""
 # Parse streams
 $selectedStreams = @()
 if ($Streams -eq "All") {
-    $selectedStreams = @(1, 2, 3, 4)
+    $selectedStreams = @(1, 2, 3, 4, 5)
 } else {
-    $selectedStreams = $Streams -split "," | ForEach-Object { [int]$_.Trim() } | Where-Object { $_ -ge 1 -and $_ -le 4 }
+    $selectedStreams = $Streams -split "," | ForEach-Object { [int]$_.Trim() } | Where-Object { $_ -ge 1 -and $_ -le 5 }
 }
 
 Write-Info "Streams to configure: $($selectedStreams -join ', ')"
@@ -446,6 +471,21 @@ if ($selectedStreams -contains 4) {
     if ($clientId) { $results[4] = $clientId }
 }
 
+# ─── STREAM 5 ───
+if ($selectedStreams -contains 5) {
+    $resourceAccess = @(
+        @{
+            ResourceAppId = $graphResourceId
+            ResourceAccess = @($stream5Permissions | ForEach-Object {
+                @{ Id = $_.Id; Type = "Scope" }
+            })
+        }
+    )
+
+    $clientId = New-StreamAppRegistration -StreamNumber 5 -AppName $streamConfig[5].Name -RequiredResourceAccess $resourceAccess
+    if ($clientId) { $results[5] = $clientId }
+}
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # GRANT ADMIN CONSENT PER APP
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -506,7 +546,7 @@ $envLines = @(
     "# Per-stream app registration Client IDs"
 )
 
-foreach ($streamNum in (1..4)) {
+foreach ($streamNum in (1..5)) {
     $envVar = $streamConfig[$streamNum].EnvVar
     if ($existingVars.ContainsKey($envVar) -and $existingVars[$envVar]) {
         $envLines += "$envVar=$($existingVars[$envVar])"
@@ -514,9 +554,6 @@ foreach ($streamNum in (1..4)) {
         $envLines += "# $envVar=  # Not configured yet"
     }
 }
-
-$envLines += ""
-$envLines += "# Stream 5 (A365/Copilot) uses Connect-MgGraph directly — no CLIENT_ID needed"
 $envLines += ""
 $envLines += "# NO CLIENT_SECRET NEEDED — all apps are public clients (delegated auth)"
 
@@ -557,6 +594,7 @@ Write-Host "    python main.py --auth-mode interactive --services M365 Entra    
 Write-Host "    python main.py --auth-mode interactive --services Defender        # Stream 2" -ForegroundColor Cyan
 Write-Host "    python main.py --auth-mode interactive --services Purview         # Stream 3" -ForegroundColor Cyan
 Write-Host '    python main.py --auth-mode interactive --services "Power Platform"  # Stream 4' -ForegroundColor Cyan
+Write-Host "    python main.py --auth-mode interactive --services A365              # Stream 5" -ForegroundColor Cyan
 Write-Host "    python main.py --auth-mode interactive                            # All" -ForegroundColor Cyan
 Write-Host ""
 

@@ -1102,12 +1102,35 @@ async def get_entra_client(graph_client, tenant_id=None):
         except httpx.HTTPStatusError as e:
             # HTTP error from beta API
             if e.response.status_code == 403:
-                client_obj.network_access_summary['status'] = 'PermissionDenied'
-                client_obj.network_access_summary['error'] = 'NetworkAccessPolicy.Read.All permission required'
-                client_obj.private_access_summary['status'] = 'PermissionDenied'
-                client_obj.private_access_summary['error'] = 'NetworkAccessPolicy.Read.All permission required'
-                with _stdout_lock:
-                    print(f"[{get_timestamp()}] ℹ️     Entra: Global Secure Access API access denied (requires NetworkAccessPolicy.Read.All permission)")
+                # 403 from /beta/networkAccess/ can have multiple causes:
+                # - Permission not granted (error code: Authorization_RequestDenied)
+                # - Service not onboarded/licensed in the tenant
+                # - Conditional Access or tenant-level restrictions
+                # We classify only the known case; everything else is generic AccessDenied.
+                error_code = ''
+                error_message = ''
+                try:
+                    error_body = e.response.json()
+                    error_code = error_body.get('error', {}).get('code', '')
+                    error_message = error_body.get('error', {}).get('message', '')
+                except Exception:
+                    pass
+                if error_code == 'Authorization_RequestDenied':
+                    client_obj.network_access_summary['status'] = 'PermissionDenied'
+                    client_obj.network_access_summary['error'] = 'NetworkAccessPolicy.Read.All permission required'
+                    client_obj.private_access_summary['status'] = 'PermissionDenied'
+                    client_obj.private_access_summary['error'] = 'NetworkAccessPolicy.Read.All permission required'
+                    with _stdout_lock:
+                        print(f"[{get_timestamp()}] ℹ️     Entra: Global Secure Access API permission denied (NetworkAccessPolicy.Read.All not granted)")
+                else:
+                    # Ambiguous 403 — could be service not onboarded, CA policy, or other restriction
+                    detail = f'{error_code}: {error_message}' if error_code else 'No error details in response'
+                    client_obj.network_access_summary['status'] = 'AccessDenied'
+                    client_obj.network_access_summary['error'] = detail
+                    client_obj.private_access_summary['status'] = 'AccessDenied'
+                    client_obj.private_access_summary['error'] = detail
+                    with _stdout_lock:
+                        print(f"[{get_timestamp()}] ℹ️     Entra: Global Secure Access API returned 403 ({detail})")
             elif e.response.status_code == 404:
                 client_obj.network_access_summary['status'] = 'NotLicensed'
                 client_obj.network_access_summary['error'] = 'Entra Suite license required'

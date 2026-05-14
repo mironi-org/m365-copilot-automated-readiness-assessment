@@ -3,7 +3,7 @@
 # Usage: .\collect_purview_data.ps1 [-DataOnly]
 
 param(
-    [switch]$DataOnly  # If set, outputs JSON only (for Python subprocess invocation)
+    [switch]$DataOnly            # If set, outputs JSON only (for Python subprocess invocation)
 )
 
 # Check required PowerShell modules
@@ -69,6 +69,7 @@ try {
         } else {
             Connect-ExchangeOnline -ShowBanner:$false -ErrorAction Stop -WarningAction SilentlyContinue | Out-Null
         }
+        $exoConnected = $true
         Write-Progress " ✓" -ForegroundColor Green
         [Console]::Error.WriteLine("AUTH_COMPLETE:Exchange Online")
     } else {
@@ -84,13 +85,87 @@ try {
         } catch {
             # Not auto-connected, need to connect manually
             Write-Progress "      → Connecting to Security & Compliance..." -NoNewline
+            $ippsSuccess = $false
             if ($env:USE_DEVICE_CODE -eq "1") {
-                Connect-IPPSSession -Device -ErrorAction Stop -WarningAction SilentlyContinue
+                # Connect-IPPSSession does NOT support -Device parameter.
+                # Strategy: Use MSAL.NET (shipped with EXO module) via a compiled C# helper
+                # to run a device code flow for the compliance scope, then pass the token
+                # to Connect-IPPSSession -AccessToken.
+                # C# helper needed because PS scriptblock callbacks fail with "no Runspace" on threadpool.
+                # /nowarn:1701 suppresses assembly version mismatch (.NET 10 runtime vs .NET 8 MSAL DLL).
+                try {
+                    $exoSession = Get-ConnectionInformation -ErrorAction Stop | Select-Object -First 1
+                    $upn = $exoSession.UserPrincipalName
+                    if (-not $upn) { throw "Could not determine UPN from EXO session" }
+
+                    # Load MSAL.NET from the EXO module directory
+                    $msalLoaded = [System.AppDomain]::CurrentDomain.GetAssemblies() | Where-Object { $_.GetName().Name -eq 'Microsoft.Identity.Client' }
+                    if (-not $msalLoaded) {
+                        $exoModuleBase = (Get-Module ExchangeOnlineManagement).ModuleBase
+                        $msalDll = Join-Path $exoModuleBase "netCore\Microsoft.Identity.Client.dll"
+                        if (-not (Test-Path $msalDll)) {
+                            $msalDll = Join-Path $exoModuleBase "NetFramework\Microsoft.Identity.Client.dll"
+                        }
+                        if (-not (Test-Path $msalDll)) { throw "Cannot find MSAL DLL in EXO module" }
+                        Add-Type -Path $msalDll -ErrorAction Stop
+                    }
+
+                    # Compile C# helper for device code callback (avoids PS runspace issue on threadpool)
+                    $callbackTypeDefined = [System.AppDomain]::CurrentDomain.GetAssemblies() | ForEach-Object { try { $_.GetType('IppsDeviceCodeHelper') } catch {} } | Where-Object { $_ -ne $null }
+                    if (-not $callbackTypeDefined) {
+                        $helperSource = @"
+using System;
+using System.Threading.Tasks;
+using Microsoft.Identity.Client;
+public static class IppsDeviceCodeHelper {
+    public static Func<DeviceCodeResult, Task> GetCallback() {
+        return dcr => { Console.Error.WriteLine(dcr.Message); return Task.CompletedTask; };
+    }
+}
+"@
+                        $msalAssemblyPath = ([Microsoft.Identity.Client.PublicClientApplicationBuilder].Assembly.Location)
+                        $consoleAssembly = ([System.Console].Assembly.Location)
+                        Add-Type -TypeDefinition $helperSource -ReferencedAssemblies @($msalAssemblyPath, $consoleAssembly) -CompilerOptions '/nowarn:1701' -ErrorAction Stop
+                    }
+
+                    # Build MSAL public client app (same registered app as EXO module)
+                    $clientId = "fb78d390-0c51-40cd-8e17-fdbfab77341b"
+                    $app = [Microsoft.Identity.Client.PublicClientApplicationBuilder]::Create($clientId).
+                        WithAuthority("https://login.microsoftonline.com/common").
+                        WithDefaultRedirectUri().
+                        Build()
+
+                    # Device code flow for compliance scope — callback writes to stderr for Python display
+                    $scopes = [string[]]@("https://ps.compliance.protection.outlook.com/.default")
+                    $callback = [IppsDeviceCodeHelper]::GetCallback()
+                    $authResult = $app.AcquireTokenWithDeviceCode($scopes, $callback).ExecuteAsync().GetAwaiter().GetResult()
+
+                    if ($authResult -and $authResult.AccessToken) {
+                        Connect-IPPSSession -AccessToken $authResult.AccessToken -UserPrincipalName $upn -ShowBanner:$false -ErrorAction Stop -WarningAction SilentlyContinue
+                        $ippsSuccess = $true
+                    } else {
+                        throw "MSAL device code flow returned no access token for compliance"
+                    }
+                } catch {
+                    [Console]::Error.WriteLine("ERROR: IPPS device-code auth failed: $($_.Exception.Message)")
+                }
             } else {
-                Connect-IPPSSession -ErrorAction Stop -WarningAction SilentlyContinue | Out-Null
+                # Interactive/browser mode
+                try {
+                    Connect-IPPSSession -ShowBanner:$false -ErrorAction Stop -WarningAction SilentlyContinue
+                    $ippsSuccess = $true
+                } catch {
+                    [Console]::Error.WriteLine("ERROR: IPPS connection failed: $($_.Exception.Message)")
+                }
             }
-            Write-Progress " ✓" -ForegroundColor Green
-            [Console]::Error.WriteLine("AUTH_COMPLETE:Security & Compliance")
+            if ($ippsSuccess) {
+                $ippsConnected = $true
+                Write-Progress " ✓" -ForegroundColor Green
+                [Console]::Error.WriteLine("AUTH_COMPLETE:Security & Compliance")
+            } else {
+                Write-Progress " ✗ (skipped)" -ForegroundColor Yellow
+                [Console]::Error.WriteLine("AUTH_SKIPPED:Security & Compliance")
+            }
         }
     } else {
         [Console]::Error.WriteLine("AUTH_COMPLETE:Security & Compliance")
@@ -100,7 +175,7 @@ try {
         Write-Progress "      ✓ Using existing connections" -ForegroundColor Green
     }
 } catch {
-    python main.py --auth-mode device_code --services Purview    # Always write errors to stderr so Python can display them (Write-Progress is a no-op in -DataOnly mode)
+    # Always write errors to stderr so Python can display them (Write-Progress is a no-op in -DataOnly mode)
     [Console]::Error.WriteLine("ERROR: Connection failed: $($_.Exception.Message)")
     Write-Progress "      ✗ Connection failed: $($_.Exception.Message)" -ForegroundColor Red
     Write-Progress ""
@@ -118,6 +193,19 @@ if (-not $DataOnly) {
 
 $purviewData = @{}
 $permissionFailures = @()
+
+# Skip all IPPS-dependent cmdlets if Security & Compliance session was not established
+if (-not $ippsConnected) {
+    $purviewData['dlp_policies'] = @{ count = 0; policies = @(); permission_denied = $true }
+    $purviewData['sensitivity_labels'] = @{ count = 0; labels = @(); permission_denied = $true }
+    $purviewData['retention_policies'] = @{ count = 0; policies = @(); permission_denied = $true }
+    $purviewData['label_policies'] = @{ count = 0; policies = @(); permission_denied = $true }
+    $purviewData['insider_risk_policies'] = @{ count = 0; policies = @(); permission_denied = $true }
+    $purviewData['communication_compliance'] = @{ count = 0; policies = @(); permission_denied = $true }
+    $purviewData['information_barriers'] = @{ count = 0; policies = @(); permission_denied = $true }
+    $purviewData['ediscovery_cases'] = @{ count = 0; cases = @(); permission_denied = $true }
+    $permissionFailures += @("DLP Policies", "Sensitivity Labels", "Retention Policies", "Label Policies", "Insider Risk Policies", "Communication Compliance", "Information Barriers", "eDiscovery Cases")
+} else {
 
 # Collect DLP Policies
 Write-Progress "      → DLP Compliance Policies..." -NoNewline
@@ -239,6 +327,8 @@ try {
     $permissionFailures += "eDiscovery Cases"
 }
 
+} # End of IPPS-connected cmdlets block
+
 # Collect Organization Configuration
 Write-Progress "      → Organization Config..." -NoNewline
 try {
@@ -294,6 +384,7 @@ $jsonData = $purviewData | ConvertTo-Json -Depth 10 -Compress
 if ($DataOnly) {
     # DataOnly mode: Output JSON to stdout (for Python subprocess)
     Write-Output $jsonData
+    exit 0
 } else {
     # Interactive mode: Pass data to Python via stdin
     $env:PURVIEW_DATA_SOURCE = "stdin"

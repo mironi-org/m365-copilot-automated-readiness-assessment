@@ -73,7 +73,10 @@ try {
         # Connect to Azure account using device code authentication
         # This works reliably in subprocess scenarios
         # Do NOT pipe to Out-Null - we need to see the device code!
-        Connect-AzAccount -Tenant $TenantId -UseDeviceAuthentication -ErrorAction Stop -WarningAction SilentlyContinue
+        # -SkipContextPopulation prevents interactive subscription picker that hangs in subprocess
+        # Disable LoginExperienceV2 to prevent interactive subscription selection in subprocess
+        Update-AzConfig -LoginExperienceV2 Off -Scope Process | Out-Null
+        Connect-AzAccount -Tenant $TenantId -UseDeviceAuthentication -SkipContextPopulation -ErrorAction Stop -WarningAction SilentlyContinue
         
         Write-ConditionalOutput "" 
         Write-ConditionalOutput "      > Authentication successful!" -Color Green

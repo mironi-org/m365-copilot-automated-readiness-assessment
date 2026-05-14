@@ -30,8 +30,8 @@ async def analyze_service_plans(tenant_id, services_to_run):
         # No Graph-based services to analyze, skip feature analysis
         return
     
-    # Get all service plans from tenant (shows auth messages)
-    client = await get_graph_client(tenant_id, services=services_to_run)
+    # Get all service plans from tenant (silent=True — auth prompt deferred to setup_graph_and_licenses)
+    client = await get_graph_client(tenant_id, silent=True, services=services_to_run)
     
     # Start progress bar for data fetching
     start_time = time.time()

@@ -1,5 +1,6 @@
 from azure.identity import ClientSecretCredential, DeviceCodeCredential, InteractiveBrowserCredential
 from msgraph import GraphServiceClient
+import msal
 import httpx
 import logging
 import os
@@ -91,6 +92,72 @@ def _create_interactive_credential(tenant_id, client_id):
         client_id=client_id
     )
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SINGLE DEVICE-CODE TOKEN ACQUISITION FOR PURVIEW STREAM (Graph only)
+# Acquires Graph token via MSAL device-code flow so _StaticTokenCredential
+# can provide it to get_graph_client() without a second DeviceCodeCredential.
+# EXO/IPPS tokens are handled by PowerShell modules (first-party app IDs).
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Module-level cache for Purview Graph token (populated once, consumed by _StaticTokenCredential)
+_purview_tokens = {}  # {'graph': str}
+
+_GRAPH_SCOPE = ['https://graph.microsoft.com/.default']
+
+
+def acquire_purview_tokens(tenant_id, client_id):
+    """Acquire Graph token via a single device-code flow for Purview stream.
+
+    Uses MSAL PublicClientApplication directly (not azure-identity) so the
+    token can be shared with _StaticTokenCredential in get_graph_client(),
+    eliminating the redundant DeviceCodeCredential prompt.
+
+    EXO/IPPS tokens are NOT acquired here — PowerShell modules handle those
+    using Microsoft's first-party app IDs (proven working, no permission gaps).
+
+    Args:
+        tenant_id: Azure AD tenant ID
+        client_id: App registration client ID (CLIENT_ID_STREAM3)
+
+    Returns:
+        dict with key 'graph' — the access token string.
+        Raises RuntimeError on failure.
+    """
+    global _purview_tokens
+    if _purview_tokens:
+        return _purview_tokens
+
+    import sys
+    from .spinner import get_timestamp
+
+    authority = f"https://login.microsoftonline.com/{tenant_id}"
+    app = msal.PublicClientApplication(client_id, authority=authority)
+
+    # Device-code flow for Graph scope — the ONLY Python-side user prompt
+    flow = app.initiate_device_flow(scopes=_GRAPH_SCOPE)
+    if 'user_code' not in flow:
+        raise RuntimeError(f"Failed to initiate device code flow: {flow.get('error_description', 'unknown error')}")
+
+    print(f"\n{'=' * 70}")
+    print(f"  To sign in, open a browser and go to:  {flow['verification_uri']}")
+    print(f"  Enter the code:  {flow['user_code']}")
+    print(f"{'=' * 70}\n")
+    sys.stdout.flush()
+
+    graph_result = app.acquire_token_by_device_flow(flow)
+    if 'access_token' not in graph_result:
+        raise RuntimeError(f"Graph token acquisition failed: {graph_result.get('error_description', 'unknown error')}")
+
+    print(f"[{get_timestamp()}] ✅ Authenticated (Graph scope)")
+    sys.stdout.flush()
+
+    _purview_tokens = {
+        'graph': graph_result['access_token'],
+    }
+    return _purview_tokens
+
+
 async def get_graph_client(tenant_id=None, silent=False, services=None):
     """Get Microsoft Graph SDK client using service principal or delegated authentication.
     
@@ -137,32 +204,32 @@ async def get_graph_client(tenant_id=None, silent=False, services=None):
             sys.stdout.flush()
         
         if client_id not in _credentials:
-            _credentials[client_id] = _create_interactive_credential(tenant_id, client_id)
+            # If Purview tokens were pre-acquired via acquire_purview_tokens(),
+            # use a static bearer token — no device code needed
+            if _purview_tokens.get('graph') and os.getenv('CLIENT_ID_STREAM3') == client_id:
+                from azure.core.credentials import AccessToken
+                import time
+
+                class _StaticTokenCredential:
+                    """Credential that returns a pre-acquired access token."""
+                    def __init__(self, token):
+                        self._token = token
+                    def get_token(self, *scopes, **kwargs):
+                        return AccessToken(self._token, int(time.time()) + 3600)
+
+                _credentials[client_id] = _StaticTokenCredential(_purview_tokens['graph'])
+            else:
+                _credentials[client_id] = _create_interactive_credential(tenant_id, client_id)
         
         credential = _credentials[client_id]
         
-        # Force token acquisition NOW for non-silent mode — triggers the device
-        # code prompt or browser popup immediately, ensures "Authenticated" prints
-        # only after real auth.
-        # For silent mode (e.g. Purview-only): skip explicit get_token() and let
-        # the Graph SDK acquire the token lazily on the first API call.  This
-        # avoids a double device-code prompt caused by MSAL not serving the
-        # cached token to the SDK's internal get_token() call (azure-identity
-        # 1.25.x / msal 1.36.x).
-        token_acquired = False
-        if not silent:
-            try:
-                credential.get_token('https://graph.microsoft.com/.default')
-                token_acquired = True
-            except Exception:
-                print(f"[{get_timestamp()}] ⚠️  Graph token not available for this app (may lack Graph API permissions)")
-                import sys
-                sys.stdout.flush()
-            
-            if token_acquired:
-                print(f"[{get_timestamp()}] ✅ Authenticated successfully")
-                import sys
-                sys.stdout.flush()
+        # Do NOT call credential.get_token() explicitly here.
+        # Let the Graph SDK acquire the token lazily on its first API call.
+        # Calling get_token() eagerly causes a DOUBLE device-code prompt because
+        # MSAL (azure-identity 1.25.x / msal 1.36.x) does not reliably serve
+        # the cached token when the SDK calls get_token() internally afterward.
+        # The "Authenticated" message is printed by setup_graph_and_licenses()
+        # after the first successful SDK call (subscribed_skus.get()).
         
         # For interactive with per-stream apps: use .default (admin pre-granted consent)
         scopes = ['https://graph.microsoft.com/.default']
@@ -446,7 +513,16 @@ def ensure_a365_interactive_signin(tenant_id=None, silent=False):
                 print(f"[{get_timestamp()}] ⚠️  TENANT_ID is required for A365 interactive sign-in")
             return False
 
-        # Use PowerShell Graph interactive auth (popup experience, similar to Purview flow).
+        client_id = os.getenv('CLIENT_ID_STREAM5', '')
+        if not client_id:
+            os.environ["A365_INTERACTIVE_AUTH"] = "0"
+            if not silent:
+                print(f"[{get_timestamp()}] ⚠️  CLIENT_ID_STREAM5 is required for A365 interactive sign-in. Run setup-interactive-auth.ps1 -Streams 5")
+            return False
+
+        # Use PowerShell Graph auth — device code or interactive browser based on auth mode.
+        use_device_code = os.getenv('USE_DEVICE_CODE') == '1'
+
         ps_command = (
             "$ErrorActionPreference='Stop';"
             "if (-not (Get-Module -ListAvailable -Name Microsoft.Graph.Authentication)) {"
@@ -455,21 +531,50 @@ def ensure_a365_interactive_signin(tenant_id=None, silent=False):
             "  exit 61"
             "};"
             "Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null;"
-            "Write-Host 'A365 sign-in required now. Complete device authentication in the browser within 120 seconds.' -ForegroundColor Yellow;"
-            "Write-Host 'If the browser prompt is hidden, bring it to front and finish sign-in.' -ForegroundColor Yellow;"
-            f"Connect-MgGraph -TenantId '{tenant}' -NoWelcome -ContextScope Process -UseDeviceAuthentication -Scopes 'User.Read','Directory.Read.All','CopilotPackages.Read.All' -ErrorAction Stop;"
+        )
+
+        if use_device_code:
+            ps_command += (
+                "Write-Host 'A365 sign-in required now. Complete device authentication in the browser within 120 seconds.' -ForegroundColor Yellow;"
+                "Write-Host 'Use https://microsoft.com/devicelogin if login.microsoft.com/device has browser issues.' -ForegroundColor Yellow;"
+                f"Connect-MgGraph -TenantId '{tenant}' -ClientId '{client_id}' -NoWelcome -ContextScope Process -UseDeviceAuthentication -Scopes 'User.Read','CopilotPackages.Read.All' -ErrorAction Stop;"
+            )
+        else:
+            ps_command += (
+                "Write-Host 'A365 sign-in required now. An account picker/browser prompt should open.' -ForegroundColor Yellow;"
+                "Write-Host 'If the browser prompt is hidden, bring it to front and finish sign-in.' -ForegroundColor Yellow;"
+                f"Connect-MgGraph -TenantId '{tenant}' -ClientId '{client_id}' -NoWelcome -ContextScope Process -Scopes 'User.Read','CopilotPackages.Read.All' -ErrorAction Stop;"
+            )
+
+        ps_command += (
+            "$ctx = Get-MgContext;"
+            "if ($ctx) {"
+            "  Write-Host \"[A365-DIAG] Account: $($ctx.Account)\" -ForegroundColor Cyan;"
+            "  Write-Host \"[A365-DIAG] Scopes in token: $($ctx.Scopes -join ', ')\" -ForegroundColor Cyan;"
+            "}"
             "try {"
             "  Invoke-MgGraphRequest -Method GET -Uri 'https://graph.microsoft.com/beta/copilot/admin/catalog/packages?$top=1' -ErrorAction Stop | Out-Null;"
             "  exit 0"
             "}"
             "catch {"
+            "  Write-Host \"[A365-DIAG] API ERROR: $($_.Exception.Message)\" -ForegroundColor Red;"
             "  if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {"
             "    $code=[int]$_.Exception.Response.StatusCode;"
+            "    Write-Host \"[A365-DIAG] HTTP $code\" -ForegroundColor Red;"
+            "    $errBody='';"
+            "    try {"
+            "      $errBody = $_.Exception.Response.Content.ReadAsStringAsync().Result;"
+            "      if ($errBody) { Write-Host \"[A365-DIAG] Body: $errBody\" -ForegroundColor Red }"
+            "    } catch {}"
+            "    if ($code -eq 403 -and $errBody -match 'licensed') { exit 44 }"
             "    if ($code -eq 401) { exit 41 }"
             "    elseif ($code -eq 403) { exit 43 }"
             "    else { exit 50 }"
             "  }"
-            "  else { exit 51 }"
+            "  else {"
+            "    Write-Host \"[A365-DIAG] Non-HTTP error: $($_.Exception.GetType().FullName)\" -ForegroundColor Red;"
+            "    exit 51"
+            "  }"
             "}"
         )
 
@@ -486,7 +591,10 @@ def ensure_a365_interactive_signin(tenant_id=None, silent=False):
 
         os.environ["A365_INTERACTIVE_AUTH"] = "0"
         if not silent:
-            if result.returncode == 43:
+            if result.returncode == 44:
+                print(f"[{get_timestamp()}] ⚠️  Tenant is not licensed for Microsoft 365 Copilot / Agent 365.")
+                print(f"[{get_timestamp()}] ℹ️  The Copilot admin catalog API requires an active Copilot license on the tenant.")
+            elif result.returncode == 43:
                 print(f"[{get_timestamp()}] ⚠️  Signed-in user is not authorized for Copilot admin catalog endpoint (requires AI Admin/Copilot Admin or Global Admin).")
             elif result.returncode == 41:
                 print(f"[{get_timestamp()}] ⚠️  Interactive sign-in succeeded, but token is unauthorized for Copilot admin endpoint.")

@@ -8,7 +8,9 @@ import time
 from datetime import datetime
 
 # Global lock to prevent multiple threads from writing to stdout simultaneously
-_stdout_lock = threading.Lock()
+# Use RLock (reentrant) so the same thread can re-acquire without deadlocking
+# (e.g. start_spinner → print_status called inside a with _stdout_lock block)
+_stdout_lock = threading.RLock()
 
 # Global message buffer for collecting messages during progress bar display
 _message_buffer = []

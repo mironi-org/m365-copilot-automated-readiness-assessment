@@ -139,26 +139,43 @@ async def collect_power_platform_data(tenant_id, run_power_platform, run_copilot
 async def collect_purview_data_via_powershell():
     """Launch PowerShell to collect Purview data with interactive authentication.
     
+    Graph token is pre-acquired via MSAL (single device code) to feed
+    _StaticTokenCredential in get_graph_client(). EXO/IPPS authentication
+    is handled by PowerShell modules using native -Device flow.
+    
     Sets environment variables that will be consumed by get_purview_client.
     
     Returns:
         bool: True if data collection succeeded, False otherwise
     """
     use_device_code = os.environ.get('USE_DEVICE_CODE') == '1'
+    
+    # Pre-acquire Graph token via MSAL (populates _purview_tokens for _StaticTokenCredential)
+    if use_device_code:
+        try:
+            from .get_graph_client import acquire_purview_tokens
+            tenant_id = os.environ.get('TENANT_ID')
+            client_id = os.environ.get('CLIENT_ID_STREAM3')
+            acquire_purview_tokens(tenant_id, client_id)
+        except Exception as e:
+            with _stdout_lock:
+                sys.stdout.write(f'[{get_timestamp()}]   ⚠️  Graph token pre-acquisition failed: {e}\n')
+                sys.stdout.flush()
+    
     with _stdout_lock:
-        sys.stdout.write(f'[{get_timestamp()}]   ℹ️  Launching PowerShell to collect Purview data (requires interactive auth)...\n')
+        sys.stdout.write(f'[{get_timestamp()}]   ℹ️  Launching PowerShell to collect Purview data...\n')
         if use_device_code:
-            sys.stdout.write(f'[{get_timestamp()}]   ⚠️  Device code prompts will appear for Exchange Online, then Security & Compliance\n')
+            sys.stdout.write(f'[{get_timestamp()}]   ⚠️  Device code prompt will appear for Exchange Online authentication\n')
         else:
-            sys.stdout.write(f'[{get_timestamp()}]   ⚠️  Browser authentication windows will appear twice (Exchange Online, then Security & Compliance)\n')
-            sys.stdout.write(f'[{get_timestamp()}]   ⚠️  Check if browser window is hidden behind other apps/screens\n')
+            sys.stdout.write(f'[{get_timestamp()}]   ⚠️  Browser authentication windows will appear\n')
         sys.stdout.flush()
     
-    # Invoke collect_purview_data.ps1 in DataOnly mode with real-time stderr streaming
-    # PS1 files are in parent directory, not in Core
+    # Launch PowerShell — no token args, PS handles EXO/IPPS auth natively
     ps_script = os.path.join(os.path.dirname(__file__), '..', 'collect_purview_data.ps1')
+    cmd = ['pwsh', '-ExecutionPolicy', 'Bypass', '-File', ps_script, '-DataOnly']
+    
     process = subprocess.Popen(
-        ['pwsh', '-ExecutionPolicy', 'Bypass', '-File', ps_script, '-DataOnly'],
+        cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -167,55 +184,32 @@ async def collect_purview_data_via_powershell():
         bufsize=1  # Line buffered
     )
     
-    # Spinner control
-    spinner_stop_event = threading.Event()
-    current_spinner_message = None
+    # Status message control (no animation — \r is unreliable on Windows terminals)
+    def print_status(message):
+        """Print a single status line (no spinner animation)"""
+        with _stdout_lock:
+            sys.stdout.write(f'[{get_timestamp()}]   ⏳ {message}\n')
+            sys.stdout.flush()
     
-    def run_spinner(message):
-        """Display a rotating spinner with message"""
-        spinner_chars = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
-        idx = 0
-        while not spinner_stop_event.is_set():
-            with _stdout_lock:
-                sys.stdout.write(f'\r[{get_timestamp()}]   {spinner_chars[idx]} {message}')
-                sys.stdout.flush()
-            idx = (idx + 1) % len(spinner_chars)
-            time.sleep(0.1)
-    
-    spinner_thread = None
-    
+    # Compatibility shims — other code calls start/stop_spinner
     def start_spinner(message):
-        """Start spinner with given message"""
-        nonlocal spinner_thread, current_spinner_message
-        current_spinner_message = message
-        spinner_stop_event.clear()
-        spinner_thread = threading.Thread(target=run_spinner, args=(message,), daemon=True)
-        spinner_thread.start()
+        print_status(message)
     
     def stop_spinner():
-        """Stop and clear spinner"""
-        nonlocal spinner_thread
-        if spinner_thread and spinner_thread.is_alive():
-            spinner_stop_event.set()
-            spinner_thread.join(timeout=0.5)
-            with _stdout_lock:
-                # Clear the spinner line
-                sys.stdout.write('\r' + ' ' * 120 + '\r')
-                sys.stdout.flush()
+        pass  # Nothing to stop — no background thread
     
-    # Start spinner for first authentication (Exchange Online first, then IPPS can reuse token)
-    start_spinner('Waiting for Exchange Online authentication...')
+    # Initial status
+    print_status('Waiting for Exchange Online authentication...')
     
     # Shared buffer for stdout lines (threaded reader fills it, main thread extracts JSON later)
     stdout_lines = []
     
-    # Stream stdout in real-time — device code prompts from MSAL go to stdout via Console.WriteLine
+    # Stream stdout — display device code prompts from PS
     def stream_stdout():
         try:
             for line in process.stdout:
                 stripped = line.rstrip()
                 stdout_lines.append(stripped)
-                # Display device code prompts in real-time (MSAL writes these to Console/stdout)
                 lower = stripped.lower()
                 if stripped and ('devicelogin' in lower or 'enter the code' in lower or 'microsoft.com/device' in lower):
                     stop_spinner()
@@ -226,6 +220,8 @@ async def collect_purview_data_via_powershell():
             pass
     
     # Stream stderr in real-time to show authentication progress
+    exo_connected = threading.Event()  # Set after EXO auth completes
+    
     def stream_stderr():
         try:
             for line in process.stderr:
@@ -236,20 +232,38 @@ async def collect_purview_data_via_powershell():
                     service = line.split(':', 1)[1]
                     stop_spinner()
                     with _stdout_lock:
-                        sys.stdout.write(f'[{get_timestamp()}]   ✅ {service} authentication accepted\n')
-                        # After Exchange Online, prompt for Security & Compliance
+                        sys.stdout.write(f'[{get_timestamp()}]   \u2705 {service} connected\n')
                         if 'Exchange Online' in service:
-                            sys.stdout.write(f'[{get_timestamp()}]   ⚠️  Please provide credentials for Security & Compliance authentication...\n')
+                            exo_connected.set()
+                            sys.stdout.write(f'[{get_timestamp()}]   ⏳ Connecting to Security & Compliance...\n')
                             sys.stdout.flush()
-                            # Start spinner for Security & Compliance auth
-                            start_spinner('Waiting for Security & Compliance authentication...')
                         else:
                             sys.stdout.flush()
-                else:
+                            start_spinner('Collecting Purview compliance data...')
+                elif line.startswith('AUTH_SKIPPED:'):
+                    service = line.split(':', 1)[1]
                     stop_spinner()
+                    with _stdout_lock:
+                        sys.stdout.write(f'[{get_timestamp()}]   ⚠️  {service} skipped (auth not available in device_code mode)\n')
+                        sys.stdout.flush()
+                        start_spinner('Collecting Purview compliance data (limited)...')
+                elif line.startswith('ERROR:'):
+                    stop_spinner()
+                    with _stdout_lock:
+                        sys.stdout.write(f'[{get_timestamp()}]   ❌ {line}\n')
+                        sys.stdout.flush()
+                elif 'devicelogin' in line.lower() or 'enter the code' in line.lower() or 'microsoft.com/device' in line.lower():
+                    # Device code URL may arrive via warning stream (stderr)
+                    stop_spinner()
+                    with _stdout_lock:
+                        sys.stdout.write(f'\n{line}\n\n')
+                        sys.stdout.flush()
+                elif exo_connected.is_set():
+                    # After EXO connected, show IPPS/other stderr (safe — no spinner race)
                     with _stdout_lock:
                         sys.stdout.write(f'[{get_timestamp()}]   {line}\n')
                         sys.stdout.flush()
+                # Before EXO connects: ignore stderr (EXO module verbose noise)
         except ValueError:
             # Pipe closed, thread can exit
             pass
@@ -259,8 +273,15 @@ async def collect_purview_data_via_powershell():
     stderr_thread = threading.Thread(target=stream_stderr, daemon=True)
     stderr_thread.start()
     
-    # Wait for process to complete
-    process.wait()
+    # Wait for process to complete (with timeout to prevent indefinite hang)
+    try:
+        process.wait(timeout=300)  # 5 minute timeout
+    except subprocess.TimeoutExpired:
+        with _stdout_lock:
+            sys.stdout.write(f'[{get_timestamp()}]   ⚠️  PowerShell process timed out after 5 minutes — terminating\n')
+            sys.stdout.flush()
+        process.kill()
+        process.wait()
     result_returncode = process.returncode
     
     # Stop any remaining spinner
@@ -275,7 +296,8 @@ async def collect_purview_data_via_powershell():
     
     if result_returncode != 0:
         with _stdout_lock:
-            sys.stdout.write(f'[{get_timestamp()}]   ✗ PowerShell data collection failed\n')
+            sys.stdout.write(f'[{get_timestamp()}]   ✗ PowerShell data collection failed (exit code: {result_returncode})\n')
+            sys.stdout.write(f'[{get_timestamp()}]   stdout captured: {len(stdout)} chars\n')
             sys.stdout.flush()
         return False
     

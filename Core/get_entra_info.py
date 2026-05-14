@@ -147,7 +147,7 @@ async def get_entra_info(client, services_and_licenses=None, entra_client=None):
         network_status = entra_insights['network_access_summary'].get('status')
         
         # Only invoke if we have data or meaningful error states
-        if network_status in ['Success', 'NotLicensed', 'PermissionDenied']:
+        if network_status in ['Success', 'NotLicensed', 'PermissionDenied', 'AccessDenied']:
             # Import the recommendation function directly
             from Recommendations.entra.ENTRA_INTERNET_ACCESS import get_recommendation as get_gsa_recommendation
             
@@ -168,7 +168,7 @@ async def get_entra_info(client, services_and_licenses=None, entra_client=None):
     if entra_insights and entra_insights.get('private_access_summary'):
         private_status = entra_insights['private_access_summary'].get('status')
         
-        if private_status in ['Success', 'NotLicensed', 'PermissionDenied']:
+        if private_status in ['Success', 'NotLicensed', 'PermissionDenied', 'AccessDenied']:
             from Recommendations.entra.ENTRA_PRIVATE_ACCESS import get_recommendation as get_private_access_recommendation
             
             private_recs = get_private_access_recommendation(
