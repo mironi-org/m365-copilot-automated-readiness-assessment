@@ -1,0 +1,28 @@
+Service,Feature,Status,Priority,Observation,Recommendation,LinkText,LinkUrl
+Defender,Defender for Endpoint - Device Onboarding,Warning,Medium,"**Defender for Endpoint is active but no devices are reporting.**
+
+API is accessible but device inventory is empty. This limits threat detection capabilities.",Onboard devices to Defender for Endpoint to enable full security monitoring. See Settings → Endpoints → Onboarding in Microsoft 365 Defender portal.,Device onboarding guide,https://learn.microsoft.com/en-us/microsoft-365/security/defender-endpoint/onboarding
+Defender,Safe Documents,Success,,"Safe Documents is active in O365 w/o Teams Bundle M5, protecting Copilot workloads. No malware detected in last 30 days",,Safe Documents,https://learn.microsoft.com/defender-office-365/safe-documents-in-e5-plus-security-about/
+Defender,Microsoft Defender for Cloud Apps for Office 365,Success,,"Microsoft Defender for Cloud Apps for Office 365 is active in O365 w/o Teams Bundle M5, protecting Copilot workloads. No high-risk OAuth apps detected",,Cloud Apps,https://learn.microsoft.com/defender-cloud-apps/
+Defender,Microsoft Defender for Office 365 (Plan 2),Success,,"Microsoft Defender for Office 365 (Plan 2) is active, protecting Copilot workloads. No advanced threats detected in last 30 days",,Defender for Office 365,https://learn.microsoft.com/microsoft-365/security/office-365-security/mdo-about
+Defender,Microsoft Defender for Office 365 (Plan 1),Success,,"Microsoft Defender for Office 365 (Plan 1) is active in O365 w/o Teams Bundle M5, protecting Copilot workloads. No email threats detected in last 30 days",,Defender for Office 365,https://learn.microsoft.com/microsoft-365/security/office-365-security/mdo-about
+Defender,Microsoft Defender for Identity,Success,,"Microsoft Defender for Identity is active, protecting Copilot workloads. 20 risky users",,Defender for Identity,https://learn.microsoft.com/defender-for-identity/what-is
+Defender,Microsoft Defender for Endpoint,Success,Medium,"Microsoft Defender for Endpoint is active, protecting Copilot workloads. 2 active incidents",Review 2 active incident(s),Defender for Endpoint,https://learn.microsoft.com/microsoft-365/security/defender-endpoint/
+Defender,Microsoft Defender for Cloud Apps,Success,,"Microsoft Defender for Cloud Apps is active in O365 w/o Teams Bundle M5, protecting Copilot workloads. No high-risk OAuth apps detected",,Cloud Apps,https://learn.microsoft.com/defender-cloud-apps/what-is-defender-for-cloud-apps
+Defender,Microsoft Defender XDR,Success,Medium,"Microsoft Defender XDR is active, protecting Copilot workloads. 2 active incidents",Review 2 active incident(s),Defender XDR,https://learn.microsoft.com/microsoft-365/security/defender/
+Defender,Copilot Security Posture,Success,Low,Copilot Security Posture: **READY**,"Security posture is strong for Copilot deployment. Continue best practices:
+
+- Review Defender recommendations monthly
+- Monitor Copilot-specific threat intelligence
+- Update security policies as Copilot features expand
+- Maintain regular security awareness training.",Copilot Security,https://learn.microsoft.com/microsoft-365-copilot/microsoft-365-copilot-security
+Defender,Copilot Threat Intelligence,Success,Low,"**No significant Copilot-related threats detected** in available data sources.
+
+Advanced Hunting analysis shows clean telemetry for:
+  - Process execution patterns (no suspicious automation)
+  - Network activity (normal Copilot usage)
+  - File access patterns (no unusual sensitive data access)
+  - Email threats (no AI-themed phishing)
+  - Identity risks (no compromised accounts)
+  - OAuth apps (no high-risk third-party integrations)",Maintain continuous monitoring. Review alerts regularly for Copilot anomalies. Stay updated with Defender Threat Intelligence.,Advanced Hunting for Copilot,https://learn.microsoft.com/microsoft-365/security/defender/advanced-hunting-microsoft-365-copilot
+Defender,Copilot Data Governance,Warning,High,Unable to assess Copilot data governance - Purview data not available. Run tool with: .\collect_purview_data.ps1,"Enable Microsoft Purview to assess and enforce data governance for Copilot. Includes DLP, sensitivity labels, retention policies, and information barriers.",Purview for AI,https://learn.microsoft.com/purview/ai-microsoft-purview

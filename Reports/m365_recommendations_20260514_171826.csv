@@ -1,0 +1,32 @@
+Service,Feature,Status,Priority,Observation,Recommendation,LinkText,LinkUrl
+Defender,Defender for Endpoint - Device Onboarding,Warning,Medium,"**Defender for Endpoint is active but no devices are reporting.**
+
+API is accessible but device inventory is empty. This limits threat detection capabilities.",Onboard devices to Defender for Endpoint to enable full security monitoring. See Settings → Endpoints → Onboarding in Microsoft 365 Defender portal.,Device onboarding guide,https://learn.microsoft.com/en-us/microsoft-365/security/defender-endpoint/onboarding
+Defender,Safe Documents,Success,,"Safe Documents is active in O365 w/o Teams Bundle M5, protecting Copilot workloads. No malware detected in last 30 days",,Safe Documents,https://learn.microsoft.com/defender-office-365/safe-documents-in-e5-plus-security-about/
+Defender,Microsoft Defender for Cloud Apps for Office 365,Success,Medium,"Microsoft Defender for Cloud Apps for Office 365 is active in O365 w/o Teams Bundle M5, protecting Copilot workloads. 6 high-risk OAuth apps",Review 6 high-risk app permissions,Cloud Apps,https://learn.microsoft.com/defender-cloud-apps/
+Defender,Microsoft Defender for Office 365 (Plan 2),Success,,"Microsoft Defender for Office 365 (Plan 2) is active, protecting Copilot workloads. No advanced threats detected in last 30 days",,Defender for Office 365,https://learn.microsoft.com/microsoft-365/security/office-365-security/mdo-about
+Defender,Microsoft Defender for Office 365 (Plan 1),Success,,"Microsoft Defender for Office 365 (Plan 1) is active in O365 w/o Teams Bundle M5, protecting Copilot workloads. No email threats detected in last 30 days",,Defender for Office 365,https://learn.microsoft.com/microsoft-365/security/office-365-security/mdo-about
+Defender,Microsoft Defender for Identity,Success,,"Microsoft Defender for Identity is active, protecting Copilot workloads. 20 risky users",,Defender for Identity,https://learn.microsoft.com/defender-for-identity/what-is
+Defender,Microsoft Defender for Endpoint,Success,Medium,"Microsoft Defender for Endpoint is active, protecting Copilot workloads. 2 active incidents",Review 2 active incident(s),Defender for Endpoint,https://learn.microsoft.com/microsoft-365/security/defender-endpoint/
+Defender,Microsoft Defender for Cloud Apps,Success,Medium,"Microsoft Defender for Cloud Apps is active in O365 w/o Teams Bundle M5, protecting Copilot workloads. 6 high-risk OAuth apps",Review 6 high-risk app permissions,Cloud Apps,https://learn.microsoft.com/defender-cloud-apps/what-is-defender-for-cloud-apps
+Defender,Microsoft Defender XDR,Success,Medium,"Microsoft Defender XDR is active, protecting Copilot workloads. 2 active incidents",Review 2 active incident(s),Defender XDR,https://learn.microsoft.com/microsoft-365/security/defender/
+Defender,Copilot Security Posture,Critical,High,"Copilot Security Posture: **NOT READY**
+
+
+**1 Critical Gaps:**
+  - Review 6 third-party apps: Check Cloud App Security > OAuth apps > Filter by 'High severity'. Revoke apps with: (1) Read/Write access to all SharePoint/OneDrive files, (2) Full mailbox access, (3) Unused apps from unknown publishers, (4) Apps with offline_access requesting refresh tokens. Prioritize 7 over-privileged apps first
+
+
+**1 Risk Factors Detected:**
+  - 6 high-risk third-party apps with excessive permissions","Address 1 critical security gaps before broad Copilot deployment:
+
+1. Identity: Use Entra ID Protection > Risky users > Confirm compromised > Reset password + Revoke sessions
+2. Incidents: Defender XDR > Incidents > Filter High severity > Investigate and remediate
+3. OAuth Apps: Cloud App Security > OAuth apps > Review high-risk > Revoke unnecessary permissions
+4. DLP: Purview > Data Loss Prevention > Create policy for Copilot (SharePoint, OneDrive, Teams, Exchange)
+
+Consider phased rollout to pilot group while remediating critical gaps.",Copilot Security,https://learn.microsoft.com/microsoft-365-copilot/microsoft-365-copilot-security
+Defender,Copilot Threat Intelligence,Warning,High,"**1 threat(s)** involving Copilot:
+
+**Third-Party App Risks:** 6 high-risk OAuth apps with excessive permissions detected. 7 apps are over-privileged (>10 scopes). Risk: Malicious or compromised plugins can exfiltrate data accessed by Copilot or inject malicious prompts.","OAuth governance: Review and revoke unnecessary app consents. Implement app consent policies to prevent users from granting broad permissions. For Copilot plugins, only allow verified publishers and review permission scopes. Monitor OAuth grant logs for suspicious patterns (e.g., Mail.ReadWrite + Files.ReadWrite.All).",Advanced Hunting for Copilot,https://learn.microsoft.com/microsoft-365/security/defender/advanced-hunting-microsoft-365-copilot
+Defender,Copilot Data Governance,Warning,High,Unable to assess Copilot data governance - Purview data not available. Run tool with: .\collect_purview_data.ps1,"Enable Microsoft Purview to assess and enforce data governance for Copilot. Includes DLP, sensitivity labels, retention policies, and information barriers.",Purview for AI,https://learn.microsoft.com/purview/ai-microsoft-purview
