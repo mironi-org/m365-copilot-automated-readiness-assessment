@@ -40,12 +40,15 @@ async def orchestrate(tenant_id, services=None):
         # Load modules and analyze service plans
         await load_modules_and_analyze(tenant_id, service_config)
         
-        # PRE-FLIGHT: Ensure GitHub CLI is ready if A365 is selected
+        # PRE-FLIGHT: GitHub CLI is OPTIONAL for A365 (used only for AI summaries).
+        # Check if it's already installed AND authenticated — never auto-install.
         if run_a365:
-            from .a365.github_cli_setup import ensure_github_cli_ready
-            if not ensure_github_cli_ready():
-                print(f"\n[{get_timestamp()}] ❌ A365 service requires GitHub Copilot API access via GitHub CLI.")
-                return
+            from .a365.github_cli_setup import _is_github_cli_installed, _is_github_cli_authenticated
+            if _is_github_cli_installed() and _is_github_cli_authenticated():
+                print(f"\n[{get_timestamp()}] ✓ GitHub CLI detected — AI summaries enabled for A365")
+            else:
+                print(f"\n[{get_timestamp()}] ℹ️  GitHub CLI not available — A365 will use statistical fallback for AI summaries")
+                print(f"[{get_timestamp()}]    (Core A365 catalog data collection proceeds normally)")
         
         # PRE-FLIGHT: Launch unified Power Platform/Copilot Studio data collector if needed
         if run_power_platform or run_copilot_studio:

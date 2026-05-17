@@ -126,6 +126,7 @@ $stream1Permissions = @(
     @{ Id = "314874da-47d6-4978-88dc-cf0d37f0bb82"; Name = "DeviceManagementManagedDevices.Read.All" }
     @{ Id = "f1493658-876a-4c87-8fa7-edb559b3476a"; Name = "DeviceManagementConfiguration.Read.All" }
     @{ Id = "ba22922b-752c-446f-89d7-a2d92398fceb"; Name = "NetworkAccessPolicy.Read.All" }
+    @{ Id = "2f7013e0-ab4e-447f-a5e1-5d419950692d"; Name = "NetworkAccess.Read.All" }
 )
 
 # ═══════════════════════════════════════════════════════════════════════════════
